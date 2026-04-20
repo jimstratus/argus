@@ -64,12 +64,19 @@ def _load_reviewer_results(reviews_dir: Path) -> list[dict]:
 
 
 def _merge(reviewer_results: list[dict], threshold: int, boost: int, line_tolerance: int = 3) -> dict:
-    """Cluster findings by file + line-within-tolerance (not exact line).
+    """Cluster findings by file + anchor-based line proximity.
 
-    Algorithm: per file, sort findings by line. Walk forward, growing a cluster
-    as long as the next finding's line is within `line_tolerance` of the max
-    line already in the cluster. Reset cluster when the gap exceeds tolerance.
-    Each cluster becomes one merged finding; the anchor line is the median.
+    Algorithm: per file, sort findings by line. Start a cluster at the first
+    finding — its line becomes the cluster's anchor. Subsequent findings join
+    iff they are within `line_tolerance` of BOTH (a) the anchor, and (b) the
+    max line already in the cluster. The dual check prevents two pathological
+    behaviors:
+      - Chain drift: A@10, B@13, C@16, D@19 would all collapse under a naive
+        forward-walking-max because each is within ±3 of the previous, even
+        though A and D are 9 lines apart. The anchor check rejects C and D.
+      - Back-reference: after flushing a cluster at line 19, a finding at
+        line 20 could otherwise retroactively merge backward.
+    Each cluster becomes one merged finding; the reported line is the median.
     """
     per_reviewer_counts: dict[str, int] = {}
     by_file: dict[str, list[dict]] = defaultdict(list)
@@ -85,15 +92,24 @@ def _merge(reviewer_results: list[dict], threshold: int, boost: int, line_tolera
     for file_path, items in by_file.items():
         items.sort(key=lambda it: int(it.get("line", 0) or 0))
         cluster: list[dict] = []
+        anchor_line = -10_000
         cluster_max_line = -10_000
         for it in items:
             ln = int(it.get("line", 0) or 0)
-            if cluster and (ln - cluster_max_line) > line_tolerance:
+            # Flush cluster if this line escapes tolerance from either anchor
+            # or the current max line.
+            if cluster and (
+                abs(ln - anchor_line) > line_tolerance
+                or (ln - cluster_max_line) > line_tolerance
+            ):
                 merged_item = _emit_cluster(file_path, cluster, threshold, boost)
                 if merged_item is not None:
                     merged.append(merged_item)
                 cluster = []
+                anchor_line = -10_000
                 cluster_max_line = -10_000
+            if not cluster:
+                anchor_line = ln
             cluster.append(it)
             cluster_max_line = max(cluster_max_line, ln)
         if cluster:

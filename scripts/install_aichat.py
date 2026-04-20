@@ -46,6 +46,11 @@ def build_aichat_config(argus_cfg: dict) -> dict:
             # models are resolved per-call via -m client:model so we leave this minimal
             "models": [],
         }
+        # Pass through optional client-level pass-through fields (verified in
+        # aichat 0.30: `patch`, `extra`, `proxy`, `connect_timeout`, `timeout`).
+        for optional in ("patch", "extra", "proxy", "connect_timeout", "timeout"):
+            if optional in spec:
+                client[optional] = spec[optional]
         clients.append(client)
     return {"clients": clients}
 

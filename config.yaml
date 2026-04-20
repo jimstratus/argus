@@ -235,6 +235,17 @@ aichat_clients:
     type: openai-compatible
     api_base: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
+    # Suppress reasoning field (we just want content) and route away from
+    # providers that return reasoning-only with content: null on large prompts.
+    # Confirmed: aichat 0.30 honors `patch.chat_completions` body merges.
+    patch:
+      chat_completions:
+        ".*":
+          body:
+            reasoning:
+              exclude: true
+            provider:
+              ignore: ["io.net", "together.ai"]
   zai:
     type: openai-compatible
     api_base: https://api.z.ai/api/coding/paas/v4   # Coding Plan endpoint (your sub); standard /paas/v4 requires separate billing

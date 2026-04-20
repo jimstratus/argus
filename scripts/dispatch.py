@@ -37,15 +37,23 @@ async def _dispatch_one(name: str, spec: dict, prompt: str, timeout: int) -> dic
         return result
 
     r = await adapter.send(prompt, primary_cfg, timeout)
+    primary_latency = r.get("latency_sec", 0.0)
+    primary_exit = r.get("exit_code", 0)
+    primary_err = ""
     result["route"] = r["route"]
-    result["exit_code"] = r["exit_code"]
-    result["latency_sec"] = round(r["latency_sec"], 2)
+    result["exit_code"] = primary_exit
+    result["primary_exit_code"] = primary_exit
+    result["primary_latency_sec"] = round(primary_latency, 2)
+    result["fallback_latency_sec"] = 0.0
+    result["latency_sec"] = round(primary_latency, 2)
     result["fallback_used"] = False
 
     stdout = r["stdout"]
     stderr = r["stderr"]
 
     if r["exit_code"] != 0:
+        primary_err = (stderr or "")[:200]
+        result["primary_error"] = primary_err
         # Try fallback
         fb_cfg = spec.get("fallback")
         if fb_cfg:
@@ -53,10 +61,12 @@ async def _dispatch_one(name: str, spec: dict, prompt: str, timeout: int) -> dic
             fb_adapter = adapters.get(fb_route)
             if fb_adapter is not None:
                 r2 = await fb_adapter.send(prompt, fb_cfg, timeout)
+                fallback_latency = r2.get("latency_sec", 0.0)
                 result["fallback_used"] = True
                 result["fallback_route"] = r2["route"]
                 result["exit_code"] = r2["exit_code"]
-                result["latency_sec"] = round(r["latency_sec"] + r2["latency_sec"], 2)
+                result["fallback_latency_sec"] = round(fallback_latency, 2)
+                result["latency_sec"] = round(primary_latency + fallback_latency, 2)
                 stdout, stderr = r2["stdout"], r2["stderr"]
 
     if result["exit_code"] != 0:

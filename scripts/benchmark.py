@@ -120,23 +120,40 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int) -> dict:
     primary = spec.get("primary") or {}
     adapter = adapters.get(primary.get("route"))
     if adapter is None:
-        return {"findings": [], "latency_sec": 0, "error": f"no adapter for {primary.get('route')}"}
+        return {"findings": [], "latency_sec": 0.0, "primary_latency_sec": 0.0,
+                "fallback_latency_sec": 0.0, "fallback_used": False,
+                "error": f"no adapter for {primary.get('route')}"}
     r = await adapter.send(prompt, primary, timeout)
+    primary_latency = r.get("latency_sec", 0.0)
+    primary_exit = r.get("exit_code", 0)
+    primary_err = ""
+    fallback_latency = 0.0
+    fallback_used = False
     if r["exit_code"] != 0:
+        primary_err = (r.get("stderr") or "")[:200]
         fb = spec.get("fallback")
         if fb:
             fba = adapters.get(fb.get("route"))
             if fba is not None:
-                r = await fba.send(prompt, fb, timeout)
+                r2 = await fba.send(prompt, fb, timeout)
+                fallback_latency = r2.get("latency_sec", 0.0)
+                fallback_used = True
+                r = r2
     findings = []
     if r["exit_code"] == 0:
         parsed = extract_json(r["stdout"])
         if isinstance(parsed, dict):
             findings = normalize_findings(parsed.get("findings", []))
+    total_latency = primary_latency + fallback_latency
     return {
         "findings": findings,
-        "latency_sec": round(r["latency_sec"], 2),
+        "latency_sec": round(total_latency, 2),
+        "primary_latency_sec": round(primary_latency, 2),
+        "fallback_latency_sec": round(fallback_latency, 2),
+        "fallback_used": fallback_used,
         "exit_code": r["exit_code"],
+        "primary_exit_code": primary_exit,
+        "primary_error": primary_err,
         "error": (r.get("stderr") or "")[:200] if r["exit_code"] != 0 else None,
     }
 
@@ -425,6 +442,26 @@ async def _main_async(args) -> int:
     if est_total >= warn_thresh:
         print(f"WARNING: estimate ${est_total:.4f} >= warn threshold ${warn_thresh}. Proceeding.", file=sys.stderr)
 
+    # OR balance pre-flight: if any OR reviewer in roster, confirm account has funds.
+    uses_openrouter = any(
+        (cfg["reviewers"][n].get("primary", {}).get("client") == "openrouter")
+        or (cfg["reviewers"][n].get("fallback", {}).get("client") == "openrouter")
+        for n in roster
+    )
+    if uses_openrouter and not args.skip_balance_check and os.environ.get("OPENROUTER_API_KEY"):
+        try:
+            from or_balance import probe
+            info = probe(os.environ["OPENROUTER_API_KEY"])
+            available = info.get("available_usd")
+            if available is not None:
+                required = est_total * 2.0  # 2× safety factor
+                print(f"OpenRouter available: ${available:.4f}  (required ≥ 2× estimate = ${required:.4f})", file=sys.stderr)
+                if available < required and not yes_cost_override:
+                    print(f"BLOCKED: OR balance ${available:.4f} < required ${required:.4f}. Top up or use --yes-cost.", file=sys.stderr)
+                    return 2
+        except Exception as e:
+            sys.stderr.write(f"OR balance check failed (non-fatal): {e}\n")
+
     global PROGRESS, _PROGRESS_LOCK, _PROGRESS_START
     PROGRESS = bool(args.progress)
     _PROGRESS_LOCK = asyncio.Lock()
@@ -470,7 +507,8 @@ def main() -> int:
     ap.add_argument("--progress", action="store_true", help="log per-run progress to stderr")
     ap.add_argument("--benchmark-ts", default=None, help="shared timestamp for parallel-shell runs (same TS = merged output dir)")
     ap.add_argument("--max-wall-sec", type=int, default=600, help="hard wall-time cap per reviewer (default 600s)")
-    ap.add_argument("--yes-cost", action="store_true", help="bypass benchmark cost block (env: ARGUS_YES_COST=1)")
+    ap.add_argument("--yes-cost", action="store_true", help="bypass benchmark cost block + OR balance gate (env: ARGUS_YES_COST=1)")
+    ap.add_argument("--skip-balance-check", action="store_true", help="skip the OpenRouter balance pre-flight")
     args = ap.parse_args()
     return asyncio.run(_main_async(args))
 
