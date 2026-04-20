@@ -54,6 +54,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="print the proposed config but don't write")
     ap.add_argument("--config-path", default=None, help="override aichat config location")
+    ap.add_argument("--force", action="store_true", help="overwrite existing aichat config")
     args = ap.parse_args()
 
     argus_cfg = load_config()
@@ -77,12 +78,15 @@ def main() -> int:
 
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    if target.exists():
-        print(f"{target} already exists. Writing a sibling file for safety: {target}.argus.yaml", file=sys.stderr)
-        print(f"Merge manually: copy the `clients:` block from the sibling into your main config.", file=sys.stderr)
-        sibling = target.with_suffix(".argus.yaml")
-        sibling.write_text(yaml_text, encoding="utf-8")
-        print(f"wrote {sibling}")
+    if target.exists() and not args.force:
+        existing = target.read_text(encoding="utf-8")
+        if existing.strip() == yaml_text.strip():
+            print(f"{target} already matches desired config — no changes.", file=sys.stderr)
+        else:
+            sibling = target.with_suffix(".argus.yaml")
+            sibling.write_text(yaml_text, encoding="utf-8")
+            print(f"{target} exists with different content. Wrote sibling: {sibling}", file=sys.stderr)
+            print("Run with --force to overwrite the main config, or merge manually.", file=sys.stderr)
     else:
         target.write_text(yaml_text, encoding="utf-8")
         print(f"wrote {target}")

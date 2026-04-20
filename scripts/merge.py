@@ -21,6 +21,37 @@ from _common import (
 )
 
 
+def _emit_cluster(file_path: str, cluster: list[dict], threshold: int, boost: int) -> dict | None:
+    """Collapse a cluster of same-file, nearby-line findings into one."""
+    reviewers = sorted({it["_reviewer"] for it in cluster})
+    max_conf = max(int(it.get("confidence", 0) or 0) for it in cluster)
+    effective = min(100, max_conf + boost) if len(reviewers) >= 2 else max_conf
+    if effective < threshold:
+        return None
+    worst = max(cluster, key=lambda it: -SEVERITY_RANK.get(it.get("severity", "medium"), 3))
+    lines = sorted(int(it.get("line", 0) or 0) for it in cluster)
+    anchor_line = lines[len(lines) // 2]  # median
+    # Aggregate descriptions (cluster may merge independently-found issues)
+    unique_descs = []
+    seen_descs = set()
+    for it in sorted(cluster, key=lambda x: -int(x.get("confidence", 0) or 0)):
+        d = it.get("description", "").strip()
+        if d and d not in seen_descs:
+            seen_descs.add(d)
+            unique_descs.append(f"[{it['_reviewer']}] {d}")
+    return {
+        "file": file_path,
+        "line": anchor_line,
+        "line_range": [lines[0], lines[-1]] if lines[0] != lines[-1] else [lines[0]],
+        "severity": worst.get("severity", "medium"),
+        "category": worst.get("category", "bug"),
+        "description": "\n\n".join(unique_descs),
+        "confidence": effective,
+        "reviewers": reviewers,
+        "n_reviewers": len(reviewers),
+    }
+
+
 def _load_reviewer_results(reviews_dir: Path) -> list[dict]:
     out = []
     for p in sorted(reviews_dir.glob("*.json")):
@@ -32,36 +63,43 @@ def _load_reviewer_results(reviews_dir: Path) -> list[dict]:
     return out
 
 
-def _merge(reviewer_results: list[dict], threshold: int, boost: int) -> dict:
-    buckets: dict[tuple[str, int], list[dict]] = defaultdict(list)
+def _merge(reviewer_results: list[dict], threshold: int, boost: int, line_tolerance: int = 3) -> dict:
+    """Cluster findings by file + line-within-tolerance (not exact line).
+
+    Algorithm: per file, sort findings by line. Walk forward, growing a cluster
+    as long as the next finding's line is within `line_tolerance` of the max
+    line already in the cluster. Reset cluster when the gap exceeds tolerance.
+    Each cluster becomes one merged finding; the anchor line is the median.
+    """
     per_reviewer_counts: dict[str, int] = {}
+    by_file: dict[str, list[dict]] = defaultdict(list)
 
     for data in reviewer_results:
         name = data.get("name", "?")
         findings = data.get("findings", [])
         per_reviewer_counts[name] = len(findings)
         for f in findings:
-            key = (f.get("file", ""), int(f.get("line", 0) or 0))
-            buckets[key].append({**f, "_reviewer": name})
+            by_file[f.get("file", "")].append({**f, "_reviewer": name})
 
     merged = []
-    for key, items in buckets.items():
-        reviewers = sorted({it["_reviewer"] for it in items})
-        max_conf = max(int(it.get("confidence", 0) or 0) for it in items)
-        effective = min(100, max_conf + boost) if len(reviewers) >= 2 else max_conf
-        if effective < threshold:
-            continue
-        worst = max(items, key=lambda it: -SEVERITY_RANK.get(it.get("severity", "medium"), 3))
-        merged.append({
-            "file": key[0],
-            "line": key[1],
-            "severity": worst.get("severity", "medium"),
-            "category": worst.get("category", "bug"),
-            "description": worst.get("description", ""),
-            "confidence": effective,
-            "reviewers": reviewers,
-            "n_reviewers": len(reviewers),
-        })
+    for file_path, items in by_file.items():
+        items.sort(key=lambda it: int(it.get("line", 0) or 0))
+        cluster: list[dict] = []
+        cluster_max_line = -10_000
+        for it in items:
+            ln = int(it.get("line", 0) or 0)
+            if cluster and (ln - cluster_max_line) > line_tolerance:
+                merged_item = _emit_cluster(file_path, cluster, threshold, boost)
+                if merged_item is not None:
+                    merged.append(merged_item)
+                cluster = []
+                cluster_max_line = -10_000
+            cluster.append(it)
+            cluster_max_line = max(cluster_max_line, ln)
+        if cluster:
+            merged_item = _emit_cluster(file_path, cluster, threshold, boost)
+            if merged_item is not None:
+                merged.append(merged_item)
 
     merged.sort(key=lambda f: (
         SEVERITY_RANK.get(f["severity"], 3),

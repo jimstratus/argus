@@ -19,6 +19,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import sys
 import time
 from collections import defaultdict
@@ -390,6 +391,40 @@ async def _main_async(args) -> int:
     total_calls = len(roster) * len(fixtures) * args.runs
     print(f"Benchmarking {len(roster)} reviewers × {len(fixtures)} fixtures × {args.runs} runs = {total_calls} calls", file=sys.stderr)
 
+    # Cost gate: estimate spend and enforce benchmark thresholds
+    from _common import estimate_tokens
+    default_out_tokens = int(defaults["default_output_tokens_est"])
+    prompt_overhead = int(defaults["prompt_overhead_tokens"])
+    warn_thresh = float(defaults["benchmark_cost_warn_usd"])
+    block_thresh = float(defaults["benchmark_cost_block_usd"])
+    est_total = 0.0
+    per_reviewer_cost: list[dict] = []
+    for name in roster:
+        spec = cfg["reviewers"][name]
+        rates = spec.get("cost_per_m")
+        if not rates:
+            per_reviewer_cost.append({"reviewer": name, "cost": 0.0, "note": "paid CLI"})
+            continue
+        reviewer_cost = 0.0
+        for fx in fixtures:
+            in_tokens = estimate_tokens(fx["diff"]) + prompt_overhead
+            per_call = (in_tokens / 1_000_000) * rates["input"] + (default_out_tokens / 1_000_000) * rates["output"]
+            reviewer_cost += per_call * args.runs
+        per_reviewer_cost.append({"reviewer": name, "cost": round(reviewer_cost, 4)})
+        est_total += reviewer_cost
+
+    est_total = round(est_total, 4)
+    print(f"Estimated benchmark spend: ${est_total:.4f} (warn=${warn_thresh}, block=${block_thresh})", file=sys.stderr)
+    yes_cost_override = bool(args.yes_cost) or (os.environ.get("ARGUS_YES_COST") == "1")
+    if est_total >= block_thresh and not yes_cost_override:
+        print(f"BLOCKED: estimate ${est_total:.4f} >= block threshold ${block_thresh}. Pass --yes-cost (or ARGUS_YES_COST=1) to override.", file=sys.stderr)
+        for row in per_reviewer_cost:
+            note = row.get("note", "")
+            print(f"  {row['reviewer']:<18} ${row['cost']:>8.4f}  {note}", file=sys.stderr)
+        return 2
+    if est_total >= warn_thresh:
+        print(f"WARNING: estimate ${est_total:.4f} >= warn threshold ${warn_thresh}. Proceeding.", file=sys.stderr)
+
     global PROGRESS, _PROGRESS_LOCK, _PROGRESS_START
     PROGRESS = bool(args.progress)
     _PROGRESS_LOCK = asyncio.Lock()
@@ -435,6 +470,7 @@ def main() -> int:
     ap.add_argument("--progress", action="store_true", help="log per-run progress to stderr")
     ap.add_argument("--benchmark-ts", default=None, help="shared timestamp for parallel-shell runs (same TS = merged output dir)")
     ap.add_argument("--max-wall-sec", type=int, default=600, help="hard wall-time cap per reviewer (default 600s)")
+    ap.add_argument("--yes-cost", action="store_true", help="bypass benchmark cost block (env: ARGUS_YES_COST=1)")
     args = ap.parse_args()
     return asyncio.run(_main_async(args))
 
