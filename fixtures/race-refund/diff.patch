@@ -1,0 +1,67 @@
+diff --git a/src/services/refund.ts b/src/services/refund.ts
+index aaaa111..bbbb222 100644
+--- a/src/services/refund.ts
++++ b/src/services/refund.ts
+@@ -18,26 +18,44 @@ export async function processRefund(req: RefundRequest): Promise<RefundResult> {
+   if (req.amount <= 0) {
+     return { success: false, error: 'amount must be positive' };
+   }
+-
+-  return db.transaction(async (tx) => {
+-    const order = await tx.orders.findByIdForUpdate(req.orderId);
+-    if (!order) return { success: false, error: 'order not found' };
+-    const remaining = order.totalAmount - order.refundedAmount;
+-    if (req.amount > remaining) {
+-      return { success: false, error: `max refundable ${remaining}` };
+-    }
+-    const gw = await gateway.refund({ paymentId: order.paymentId, amount: req.amount });
+-    if (!gw.success) return { success: false, error: 'gateway failed' };
+-    await tx.orders.update(req.orderId, { refundedAmount: order.refundedAmount + req.amount });
+-    await tx.refunds.create({ orderId: req.orderId, amount: req.amount, gatewayRefundId: gw.refundId });
+-    return { success: true, refundId: gw.refundId };
+-  });
++
++  const order = await db.orders.findById(req.orderId);
++  if (!order) return { success: false, error: 'order not found' };
++
++  const remaining = order.totalAmount - order.refundedAmount;
++  if (req.amount > remaining) {
++    return { success: false, error: `max refundable ${remaining}` };
++  }
++
++  const gw = await gateway.refund({
++    paymentId: order.paymentId,
++    amount: req.amount,
++  });
++
++  if (!gw.success) {
++    return { success: false, error: 'gateway failed' };
++  }
++
++  await db.orders.update(req.orderId, {
++    refundedAmount: order.refundedAmount + req.amount,
++  });
++
++  await db.refunds.create({
++    orderId: req.orderId,
++    amount: req.amount,
++    gatewayRefundId: gw.refundId,
++  });
++
++  return { success: true, refundId: gw.refundId };
+ }
+
+ export async function bulkRefund(ids: string[], reason: string) {
+   const results = new Map<string, RefundResult>();
+-  await Promise.all(ids.map(async (id) => {
+-    const r = await processRefund({ orderId: id, amount: Infinity, reason, initiatedBy: 'system' });
+-    results.set(id, r);
+-  }));
++  for (const id of ids) {
++    const order = await db.orders.findById(id);
++    if (!order) { results.set(id, { success: false, error: 'not found' }); continue; }
++    const r = await processRefund({ orderId: id, amount: order.totalAmount - order.refundedAmount, reason, initiatedBy: 'system' });
++    results.set(id, r);
++  }
+   return results;
+ }

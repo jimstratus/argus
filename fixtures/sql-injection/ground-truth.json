@@ -1,0 +1,42 @@
+{
+  "fixture_id": "sql-injection",
+  "description": "Parameterized queries were replaced with string interpolation introducing SQL injection. A new search endpoint also uses interpolation. The soft-delete route lost its parameterization.",
+  "line_tolerance": 3,
+  "issues": [
+    {
+      "file": "src/routes/users.ts",
+      "line": 15,
+      "severity": "critical",
+      "category": "security",
+      "summary": "SQL injection: userId interpolated into SELECT WHERE clause. Was parameterized ($1) before this diff."
+    },
+    {
+      "file": "src/routes/users.ts",
+      "line": 27,
+      "severity": "critical",
+      "category": "security",
+      "summary": "SQL injection in search: q and role concatenated into SELECT WHERE/LIKE clause. User-controlled."
+    },
+    {
+      "file": "src/routes/users.ts",
+      "line": 30,
+      "severity": "critical",
+      "category": "security",
+      "summary": "SQL injection via role filter — second injection point in the same handler."
+    },
+    {
+      "file": "src/routes/users.ts",
+      "line": 44,
+      "severity": "critical",
+      "category": "security",
+      "summary": "SQL injection in DELETE: userId interpolated into UPDATE. Was parameterized before this diff — regression."
+    },
+    {
+      "file": "src/routes/users.ts",
+      "line": 36,
+      "severity": "medium",
+      "category": "security",
+      "summary": "Log injection: raw user input q and role logged without sanitization."
+    }
+  ]
+}

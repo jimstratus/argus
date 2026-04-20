@@ -1,0 +1,28 @@
+{
+  "fixture_id": "race-refund",
+  "description": "Refactor removed the db.transaction wrapper and the findByIdForUpdate row lock, introducing a race condition. Two concurrent refunds for the same order can both pass the remainingRefundable check. The gateway call and DB writes are also no longer atomic — partial failures leave inconsistent state.",
+  "line_tolerance": 4,
+  "issues": [
+    {
+      "file": "src/services/refund.ts",
+      "line": 23,
+      "severity": "critical",
+      "category": "concurrency",
+      "summary": "Race condition: db.transaction + SELECT FOR UPDATE was removed; two concurrent refunds can both read the same refundedAmount and over-refund."
+    },
+    {
+      "file": "src/services/refund.ts",
+      "line": 40,
+      "severity": "critical",
+      "category": "correctness",
+      "summary": "Lost atomicity: gateway refund + order update + refund record are no longer in a transaction. A failure after gateway.refund() leaves money refunded with no DB record."
+    },
+    {
+      "file": "src/services/refund.ts",
+      "line": 35,
+      "severity": "high",
+      "category": "resource",
+      "summary": "bulkRefund serial loop with no rate limit and no transaction — replaces prior Promise.all, but still loads each order a second time unnecessarily (already loaded inside processRefund)."
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "fixture_id": "clean-baseline",
+  "description": "Clean diff — adds maxDelayMs cap to an existing retry utility. No real bugs. Used to measure false-positive rate. Expected finding count: 0.",
+  "line_tolerance": 5,
+  "issues": []
+}

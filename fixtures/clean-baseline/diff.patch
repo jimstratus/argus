@@ -1,0 +1,43 @@
+diff --git a/src/util/retry.ts b/src/util/retry.ts
+index 3333333..4444444 100644
+--- a/src/util/retry.ts
++++ b/src/util/retry.ts
+@@ -1,6 +1,7 @@
+ export interface RetryOptions {
+   maxRetries: number;
+   baseDelayMs: number;
++  maxDelayMs: number;
+   jitterFactor: number;
+   retryableStatusCodes: number[];
+ }
+@@ -8,14 +9,20 @@ export interface RetryOptions {
+ const DEFAULTS: RetryOptions = {
+   maxRetries: 3,
+   baseDelayMs: 1000,
++  maxDelayMs: 30000,
+   jitterFactor: 0.1,
+   retryableStatusCodes: [429, 500, 502, 503, 504],
+ };
+
+ function calculateDelay(attempt: number, opts: RetryOptions): number {
+-  const base = opts.baseDelayMs * Math.pow(2, attempt);
+-  const jitter = base * opts.jitterFactor * (Math.random() * 2 - 1);
+-  return Math.max(0, base + jitter);
++  const exponential = opts.baseDelayMs * Math.pow(2, attempt);
++  const capped = Math.min(exponential, opts.maxDelayMs);
++  const jitter = capped * opts.jitterFactor * (Math.random() * 2 - 1);
++  return Math.max(0, capped + jitter);
+ }
+
+ export async function withRetry<T>(fn: () => Promise<T>, options?: Partial<RetryOptions>): Promise<T> {
+@@ -24,7 +31,9 @@ export async function withRetry<T>(fn: () => Promise<T>, options?: Partial<Retry
+       return await fn();
+     } catch (err) {
+       lastError = err;
+-      if (attempt >= opts.maxRetries) throw err;
++      if (attempt >= opts.maxRetries) {
++        throw err;
++      }
+       const delay = calculateDelay(attempt, opts);
+       await new Promise((r) => setTimeout(r, delay));
+     }

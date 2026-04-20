@@ -1,0 +1,35 @@
+{
+  "fixture_id": "secrets-leak",
+  "description": "Fallback secret hardcoded, errors swallowed, and API key logged in error path. Multiple independently-exploitable issues in one payment client.",
+  "line_tolerance": 3,
+  "issues": [
+    {
+      "file": "src/clients/payments.ts",
+      "line": 4,
+      "severity": "critical",
+      "category": "security",
+      "summary": "Hardcoded Stripe live secret as fallback for missing env var. Production key will leak into source control."
+    },
+    {
+      "file": "src/clients/payments.ts",
+      "line": 28,
+      "severity": "critical",
+      "category": "security",
+      "summary": "Stripe API key printed to console.log inside error branch. Key ends up in log aggregation and error trackers."
+    },
+    {
+      "file": "src/clients/payments.ts",
+      "line": 36,
+      "severity": "high",
+      "category": "correctness",
+      "summary": "Network errors silently swallowed — caller receives {ok: false} with no distinction between declined card and dropped connection. Previous code propagated the error."
+    },
+    {
+      "file": "src/clients/payments.ts",
+      "line": 30,
+      "severity": "medium",
+      "category": "correctness",
+      "summary": "Return shape changed (ok/chargeId) but callers likely expected full Stripe charge object. Unreviewed contract break."
+    }
+  ]
+}
