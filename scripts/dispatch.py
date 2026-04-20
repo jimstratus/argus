@@ -77,7 +77,7 @@ async def _dispatch_one(name: str, spec: dict, prompt: str, timeout: int) -> dic
 async def _main_async(args) -> int:
     cfg = load_config()
     defaults = cfg["defaults"]
-    timeout = int(defaults["reviewer_timeout_sec"])
+    timeout = int(args.timeout or defaults["reviewer_timeout_sec"])
     max_parallel = int(defaults["max_parallel"])
     ctx_safety = float(defaults["ctx_safety_ratio"])
 
@@ -146,6 +146,7 @@ def main() -> int:
     ap.add_argument("--roster", required=True, help="comma-separated reviewer names")
     ap.add_argument("--diff", required=True)
     ap.add_argument("--overlay", default=None, help="prompt overlay name (security|deep|...)")
+    ap.add_argument("--timeout", type=int, default=None, help="override reviewer_timeout_sec for this run")
     args = ap.parse_args()
     return asyncio.run(_main_async(args))
 

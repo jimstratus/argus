@@ -72,7 +72,7 @@ async def _main_async(args) -> int:
     cfg = load_config()
     reviewers = cfg["reviewers"]
     if args.all:
-        roster = list(reviewers.keys())
+        roster = [n for n, spec in reviewers.items() if not spec.get("disabled")]
     elif args.profile:
         roster = cfg["profiles"][args.profile]["members"]
     elif args.roster:

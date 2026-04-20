@@ -152,6 +152,7 @@ def _to_gsd(result: dict, run_dir: Path) -> str:
 
 def _record_history(result: dict, run_dir: Path, cfg: dict) -> None:
     """Append the run and its findings to history.db."""
+    conn = None
     try:
         conn = history_conn()
         run_id = run_dir.name
@@ -198,9 +199,14 @@ def _record_history(result: dict, run_dir: Path, cfg: dict) -> None:
                 ),
             )
         conn.commit()
-        conn.close()
     except Exception as e:
         sys.stderr.write(f"history write failed (non-fatal): {e}\n")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def main() -> int:

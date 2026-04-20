@@ -41,7 +41,11 @@ def build_prompt(diff: str, overlay: str | None = None) -> str:
         overlay_path = OVERLAYS_DIR / f"{overlay}.md"
         if overlay_path.exists():
             overlay_text = overlay_path.read_text(encoding="utf-8")
-    return tpl.replace("<<<OVERLAY>>>", overlay_text).replace("<<<DIFF>>>", diff)
+    # Escape ``` in the diff so it cannot terminate the outer fence early.
+    # Use a zero-width joiner between backticks; reviewers see visually-identical
+    # content while the fence stays intact.
+    escaped_diff = diff.replace("```", "`\u200b``")
+    return tpl.replace("<<<OVERLAY>>>", overlay_text).replace("<<<DIFF>>>", escaped_diff)
 
 
 def estimate_tokens(text: str) -> int:

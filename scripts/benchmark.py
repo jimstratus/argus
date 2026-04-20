@@ -249,6 +249,7 @@ def _agreement_matrix(results: list[dict]) -> dict:
 
 
 def _write_history(results: list[dict], ts: str) -> None:
+    conn = None
     try:
         conn = history_conn()
         for r in results:
@@ -261,9 +262,14 @@ def _write_history(results: list[dict], ts: str) -> None:
                          rd["n_findings"], rd["latency_sec"], (rd["error"] or "")[:400]),
                     )
         conn.commit()
-        conn.close()
     except Exception as e:
         sys.stderr.write(f"history write failed: {e}\n")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _write_outputs(results: list[dict], fixtures: list[dict], runs: int, ts: str, agreement: dict) -> tuple[Path, Path]:

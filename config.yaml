@@ -40,24 +40,28 @@ defaults:
 reviewers:
 
   glm-5.1:
-    display: "GLM-5.1 (Zhipu / z.ai)"
+    display: "GLM-5.1 (primary: z.ai direct; fallback: OR non-reasoning glm-4.6)"
     role: [security, logic, code]
     ctx: 131072
     tier: paid
     privacy: ok
     cost_per_m: { input: 0.60, output: 2.20 }
-    primary:  { route: aichat, client: zai,        model: "glm-5.1" }          # TODO verify exact z.ai model id (may be glm-5.1-chat)
-    fallback: { route: aichat, client: openrouter, model: "z-ai/glm-5.1" }     # TODO verify OR slug
+    primary:  { route: aichat, client: zai,        model: "glm-5.1" }
+    # fallback deliberately uses glm-4.6 non-reasoning — glm-5.1 on OR routes to
+    # reasoning-only providers (Io Net) returning content=null on large prompts.
+    fallback: { route: aichat, client: openrouter, model: "z-ai/glm-4.6" }
 
   minimax-m2.7:
-    display: "MiniMax M2.7"
+    display: "MiniMax M2.7 (primary: direct; fallback: OR non-reasoning m2)"
     role: [style, correctness, agent]
     ctx: 204800
     tier: paid
     privacy: ok
     cost_per_m: { input: 0.30, output: 1.20 }
-    primary:  { route: aichat, client: minimax,    model: "MiniMax-M2.7" }     # TODO verify
-    fallback: { route: aichat, client: openrouter, model: "minimax/minimax-m2.7" }
+    primary:  { route: aichat, client: minimax,    model: "MiniMax-M2.7" }
+    # fallback uses m2 (non-reasoning) — m2.7 on OR (Together provider) returns
+    # content=null with reasoning-only on large prompts.
+    fallback: { route: aichat, client: openrouter, model: "minimax/minimax-m2" }
 
   kimi-k2.6:
     display: "Kimi K2 (OR; k2.5 GA — k2.6 preview not yet on OR)"
@@ -233,7 +237,7 @@ aichat_clients:
     api_key_env: OPENROUTER_API_KEY
   zai:
     type: openai-compatible
-    api_base: https://api.z.ai/api/paas/v4
+    api_base: https://api.z.ai/api/coding/paas/v4   # Coding Plan endpoint (your sub); standard /paas/v4 requires separate billing
     api_key_env: ZAI_API_KEY
   minimax:
     type: openai-compatible
