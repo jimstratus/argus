@@ -41,30 +41,28 @@ Argus picks the right six for you, then filters ruthlessly.
 
 ```mermaid
 flowchart LR
-    A["diff / PR / files"] --> B[scope<br/>.argusignore]
-    B --> C[roster resolution]
-    C --> D{host<br/>detection}
+    A["diff / PR / files"] --> B["scope<br>.argusignore"]
+    B --> C["roster resolution"]
+    C --> D{"host detection"}
     D -->|claude| E1["skip claude"]
-    D -->|codex| E2["skip codex<br/>add claude"]
-    D -->|gemini| E3["skip gemini<br/>add claude"]
-    D -->|opencode| E4["skip opencode<br/>add claude"]
+    D -->|codex| E2["skip codex, add claude"]
+    D -->|gemini| E3["skip gemini, add claude"]
+    D -->|opencode| E4["skip opencode, add claude"]
     D -->|unknown| E5["no change"]
     E1 --> F
     E2 --> F
     E3 --> F
     E4 --> F
     E5 --> F
-    F[cost + OR balance gate] -->|block| X[abort]
-    F -->|pass| G[parallel dispatch]
+    F["cost + OR balance gate"] -->|block| X["abort"]
+    F -->|pass| G["parallel dispatch"]
     G --> H1["reviewer 1"]
     G --> H2["reviewer 2"]
-    G --> H3["..."]
-    G --> HN["reviewer N"]
+    G --> H3["reviewer N"]
     H1 --> I
     H2 --> I
     H3 --> I
-    HN --> I
-    I[confidence filter +<br/>anchor-based corroboration] --> J["merged.md<br/>metrics.json<br/>history.db row"]
+    I["confidence filter +<br>anchor-based corroboration"] --> J["merged.md + metrics.json<br>+ history.db row"]
 
     style F fill:#ffe4b5,stroke:#b8860b
     style X fill:#ffb6c1,stroke:#c71585
@@ -239,23 +237,23 @@ Anchor-based line clustering with dual-tolerance check:
 
 ```mermaid
 flowchart TB
-    Start([findings from all reviewers]) --> Group[group by file]
-    Group --> Sort[sort each file's findings by line]
-    Sort --> Walk{walk sorted list}
-    Walk --> Check{"abs(line - anchor) ≤ 3<br/>AND<br/>(line - cluster_max) ≤ 3?"}
-    Check -->|yes| Add[add to current cluster]
-    Check -->|no| Emit[emit current cluster]
-    Emit --> NewCluster[start new cluster<br/>anchor = this line]
+    Start(["findings from all reviewers"]) --> Group["group by file"]
+    Group --> Sort["sort each file's findings by line"]
+    Sort --> Walk{"walk sorted list"}
+    Walk --> Check{"within 3 of anchor<br>AND within 3 of cluster_max?"}
+    Check -->|yes| Add["add to current cluster"]
+    Check -->|no| Emit["emit current cluster"]
+    Emit --> NewCluster["start new cluster<br>anchor = this line"]
     Add --> Walk
     NewCluster --> Walk
-    Walk -->|done| Final[emit last cluster]
-    Final --> Boost{"≥ 2 unique reviewers<br/>in cluster?"}
-    Boost -->|yes| BoostY["confidence = min(100,<br/>max_conf + 15)"]
-    Boost -->|no| BoostN[confidence = max_conf]
-    BoostY --> Thresh{confidence ≥ 80?}
+    Walk -->|done| Final["emit last cluster"]
+    Final --> Boost{"2 or more unique reviewers<br>in cluster?"}
+    Boost -->|yes| BoostY["confidence = min(100, max_conf + 15)"]
+    Boost -->|no| BoostN["confidence = max_conf"]
+    BoostY --> Thresh{"confidence >= 80?"}
     BoostN --> Thresh
-    Thresh -->|yes| Keep[emit merged finding]
-    Thresh -->|no| Drop[drop]
+    Thresh -->|yes| Keep["emit merged finding"]
+    Thresh -->|no| Drop["drop"]
 
     style Emit fill:#fffacd,stroke:#daa520
     style BoostY fill:#98fb98,stroke:#2e8b57
@@ -273,14 +271,14 @@ Two independent gates, both enforceable:
 
 ```mermaid
 flowchart LR
-    A[Roster + diff] --> B[Estimate tokens × rates]
-    B --> C{est ≥ threshold?<br/>review: $0.50/$2<br/>bench: $10/$30}
-    C -->|≥ block| X1["BLOCK<br/>(override: --yes-cost)"]
-    C -->|< block| D{any OR reviewer<br/>in roster?}
-    D -->|no| F[dispatch]
-    D -->|yes| E[probe OR balance<br/>/auth/key + /credits]
-    E --> G{available ≥<br/>safety × est?}
-    G -->|no| X2["BLOCK<br/>(override: --yes-cost<br/>or --skip-balance-check)"]
+    A["Roster + diff"] --> B["Estimate tokens x rates"]
+    B --> C{"est >= threshold?<br>review: $0.50 / $2<br>bench: $10 / $30"}
+    C -->|at or above block| X1["BLOCK<br>override: --yes-cost"]
+    C -->|below block| D{"any OR reviewer<br>in roster?"}
+    D -->|no| F["dispatch"]
+    D -->|yes| E["probe OR balance<br>auth/key + credits"]
+    E --> G{"available >=<br>safety x est?"}
+    G -->|no| X2["BLOCK<br>override: --yes-cost<br>or --skip-balance-check"]
     G -->|yes| F
     F --> Z["run"]
 
