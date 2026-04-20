@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml psutil pytest
+
+      - name: Syntax check all scripts
+        run: |
+          python -m py_compile scripts/*.py scripts/adapters/*.py tests/*.py
+
+      - name: Module-import smoke test
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'scripts')
+          import _common, detect_host, dispatch, merge, benchmark
+          import estimate_cost, verify, stats, or_balance, install_aichat
+          import aggregate_bench, bench_cost
+          import adapters  # loads all registered adapters
+          print('all modules imported')
+          "
+
+      - name: Validate config.yaml structure
+        run: |
+          python -c "
+          import sys, yaml
+          sys.path.insert(0, 'scripts')
+          from _common import load_config
+          cfg = load_config()
+          assert 'reviewers' in cfg
+          assert 'profiles' in cfg
+          assert 'defaults' in cfg
+          assert 'aichat_clients' in cfg
+          assert 'host_rules' in cfg
+          assert 'cli_commands' in cfg
+          for name, spec in cfg['reviewers'].items():
+              assert 'primary' in spec, f'{name} missing primary'
+              route = spec['primary'].get('route')
+              if route == 'aichat':
+                  client = spec['primary'].get('client')
+                  assert client in cfg['aichat_clients'], f'{name}: unknown aichat client {client}'
+          print(f'config: {len(cfg[\"reviewers\"])} reviewers, {len(cfg[\"profiles\"])} profiles')
+          "
+
+      - name: Unit tests
+        run: |
+          python -m pytest tests/ -q --tb=short
+
+      - name: Detect-host smoke
+        run: |
+          python scripts/detect_host.py --json
+
+  fixture-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate fixtures
+        run: |
+          python -c "
+          import json, os
+          from pathlib import Path
+          fx_dir = Path('fixtures')
+          for d in sorted(fx_dir.iterdir()):
+              if not d.is_dir(): continue
+              diff = d / 'diff.patch'
+              gt = d / 'ground-truth.json'
+              assert diff.exists(), f'{d}: missing diff.patch'
+              assert gt.exists(), f'{d}: missing ground-truth.json'
+              g = json.loads(gt.read_text(encoding='utf-8'))
+              assert 'fixture_id' in g
+              assert 'issues' in g
+              assert isinstance(g['issues'], list)
+              for i, issue in enumerate(g['issues']):
+                  assert 'file' in issue, f'{d.name} issue {i}: missing file'
+                  assert 'line' in issue, f'{d.name} issue {i}: missing line'
+                  assert 'severity' in issue
+              print(f'{d.name}: {len(g[\"issues\"])} issues')
+          print('all fixtures valid')
+          "

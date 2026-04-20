@@ -17,6 +17,14 @@
 
 **Named for Argus Panoptes — the hundred-eyed giant. The original Linus's Law.**
 
+[![License: MIT](https://img.shields.io/github/license/jimstratus/argus?style=flat-square&color=blue)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
+[![aichat 0.30+](https://img.shields.io/badge/aichat-0.30%2B-8a2be2?style=flat-square)](https://github.com/sigoden/aichat)
+[![Reviewers: 14](https://img.shields.io/badge/reviewers-14-success?style=flat-square)](#roster)
+[![CI](https://img.shields.io/github/actions/workflow/status/jimstratus/argus/ci.yml?branch=master&style=flat-square&label=ci)](https://github.com/jimstratus/argus/actions)
+[![Last commit](https://img.shields.io/github/last-commit/jimstratus/argus?style=flat-square)](https://github.com/jimstratus/argus/commits)
+[![Stars](https://img.shields.io/github/stars/jimstratus/argus?style=flat-square)](https://github.com/jimstratus/argus/stargazers)
+
 </div>
 
 ---
