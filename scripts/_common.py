@@ -217,6 +217,9 @@ def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
         if not spec:
             drops.append((n, "not in registry"))
             continue
+        if spec.get("disabled"):
+            drops.append((n, "disabled in config"))
+            continue
         if spec.get("tier") == "free" and not allow_free:
             drops.append((n, "free tier (use --allow-free)"))
             continue

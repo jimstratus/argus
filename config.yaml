@@ -120,14 +120,24 @@ reviewers:
 
   # Paid-CLI reviewers — no cost attached (use host subscription)
   gemini:
-    display: "Gemini (Google CLI)"
+    display: "Gemini (Google CLI — ON HOLD — Windows .cmd shim doesn't tree-kill, hangs)"
     role: [frontier, long-context]
     ctx: 2000000
     tier: paid
     privacy: ok
-    cost_per_m: null  # paid sub
+    disabled: true      # on hold — use gemini-or instead
+    cost_per_m: null
     primary:  { route: gemini-cli }
     fallback: { route: aichat, client: openrouter, model: "google/gemini-3.1-pro-preview" }
+
+  gemini-or:
+    display: "Gemini 2.5 Flash via OpenRouter (pro variant needed more OR credits than available)"
+    role: [frontier, long-context]
+    ctx: 1048576
+    tier: paid
+    privacy: ok
+    cost_per_m: { input: 0.30, output: 2.50 }
+    primary:  { route: aichat, client: openrouter, model: "google/gemini-2.5-flash" }
 
   codex:
     display: "GPT-5.4 via Codex CLI"
@@ -157,16 +167,17 @@ reviewers:
     cost_per_m: null
     primary: { route: opencode-cli }
 
-  # Reserved for benchmarking — uses your GitHub Copilot paid sub.
-  # Same GPT family as `codex` reviewer but different harness; worth
-  # comparing head-to-head in benchmark mode. Not in default profiles.
+  # ELIMINATED: Copilot CLI's agent harness returns prose instead of our JSON
+  # schema, yielding F1=0 across all non-clean fixtures. Not a retry issue —
+  # fundamental prompt/harness mismatch. Left here as a reference entry only.
   copilot-gpt5:
-    display: "GitHub Copilot CLI (GPT-5.2)"
+    display: "GitHub Copilot CLI (GPT-5.2) — ELIMINATED (harness returns prose not JSON)"
     role: [frontier, code]
     ctx: 128000
     tier: paid
     privacy: ok
     custom_only: true
+    disabled: true
     cost_per_m: null
     primary: { route: copilot-cli, model: "gpt-5.2" }
 
@@ -176,24 +187,27 @@ reviewers:
 profiles:
   quick:
     description: "2-reviewer smoke test"
-    members: [glm-5.1, gemini]
+    members: [glm-5.1, gemini-or]
   standard:
-    description: "Balanced everyday review — your favorites + paid CLIs"
-    members: [glm-5.1, minimax-m2.7, gemini, codex]
+    description: "Balanced everyday review — your favorites + paid CLIs + fast Gemini"
+    members: [glm-5.1, minimax-m2.7, gemini-or, codex]
   panel:
-    description: "Maximum coverage (host CLI auto-skipped)"
-    members: [glm-5.1, minimax-m2.7, kimi-k2.6, mimo-v2-pro, qwen-3.6-plus, grok-4.20, deepseek-v3.2, gemini, codex, claude, opencode]
+    description: "Maximum coverage (host CLI auto-skipped; copilot, gemini-direct, grok disabled from default)"
+    members: [glm-5.1, minimax-m2.7, kimi-k2.6, mimo-v2-pro, qwen-3.6-plus, deepseek-v3.2, gemini-or, codex, claude, opencode]
   security:
     description: "Auth / crypto / input-handling changes"
     members: [glm-5.1, deepseek-v3.2, codex, claude]
     prompt_overlay: security
   deep:
-    description: "Long-context, large diffs, cross-file correctness"
-    members: [grok-4.20, mimo-v2-pro, gemini, codex]
+    description: "Long-context, large diffs, cross-file correctness (grok excluded — use --custom if 2M ctx needed)"
+    members: [mimo-v2-pro, gemini-or, kimi-k2.6, codex]
     prompt_overlay: deep
   favorites:
     description: "Your picks (GLM-5.1 + MiniMax M2.7 direct subs)"
     members: [glm-5.1, minimax-m2.7]
+  leaderboard-top5:
+    description: "Post-bench top-5 by F1 (opencode, qwen3.6+, glm5.1, gemini-or, minimax)"
+    members: [opencode, qwen-3.6-plus, glm-5.1, gemini-or, minimax-m2.7]
 
 # ─────────────────────────────────────────────────────────────────────
 # Host-CLI adaptation

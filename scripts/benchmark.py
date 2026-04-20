@@ -35,6 +35,24 @@ import adapters
 FIXTURES_DIR = ARGUS_HOME / "fixtures"
 BENCHMARKS_DIR = ARGUS_HOME / "benchmarks"
 
+# Set by --progress; when True, log per-run + per-reviewer events to stderr
+PROGRESS = False
+_PROGRESS_LOCK: asyncio.Lock | None = None
+_PROGRESS_COUNTER = {"done": 0, "total": 0}
+_PROGRESS_START: float = 0.0
+
+
+async def _log_progress(msg: str) -> None:
+    if not PROGRESS:
+        return
+    assert _PROGRESS_LOCK is not None
+    async with _PROGRESS_LOCK:
+        elapsed = time.monotonic() - _PROGRESS_START
+        done = _PROGRESS_COUNTER["done"]
+        total = _PROGRESS_COUNTER["total"]
+        sys.stderr.write(f"[{elapsed:6.1f}s {done:>3}/{total}] {msg}\n")
+        sys.stderr.flush()
+
 
 def _load_fixtures(filter_names: list[str] | None = None) -> list[dict]:
     fixtures = []
@@ -59,9 +77,20 @@ def _load_fixtures(filter_names: list[str] | None = None) -> list[dict]:
 
 
 def _score(findings: list[dict], gt: dict) -> dict:
-    """Match findings to ground-truth issues by file + line-within-tolerance."""
+    """Match findings to ground-truth issues by file + line-within-tolerance.
+
+    Edge case: clean baseline (truths empty).
+      - findings empty → perfect (P=R=F1=1.0)
+      - findings present → all false positives (P=R=F1=0.0)
+    """
     tol = int(gt.get("line_tolerance", 3))
     truths = gt.get("issues", [])
+
+    if not truths:
+        if not findings:
+            return {"tp": 0, "fp": 0, "fn": 0, "precision": 1.0, "recall": 1.0, "f1": 1.0}
+        return {"tp": 0, "fp": len(findings), "fn": 0, "precision": 0.0, "recall": 0.0, "f1": 0.0}
+
     matched = set()
     tp = 0
     for f in findings:
@@ -112,17 +141,33 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int) -> dict:
 
 
 async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
-                          runs: int, timeout: int, sem: asyncio.Semaphore) -> dict:
+                          runs: int, timeout: int, sem: asyncio.Semaphore,
+                          ts: str | None = None, max_wall_sec: int = 600) -> dict:
     per_fixture = []
     findings_keys_per_fixture: list[set[tuple[str, int]]] = []
+    wall_start = time.monotonic()
 
     for fx in fixtures:
         prompt = build_prompt(fx["diff"])
         run_data = []
         merged_keys: set[tuple[str, int]] = set()
         for idx in range(runs):
-            async with sem:
-                d = await _dispatch(name, spec, prompt, timeout)
+            if time.monotonic() - wall_start > max_wall_sec:
+                await _log_progress(f"{name:<16} WALL-CAP HIT at {int(time.monotonic()-wall_start)}s — skipping remaining runs")
+                run_data.append({
+                    "run_idx": idx, "n_findings": 0, "latency_sec": 0.0,
+                    "exit_code": 137, "error": "wall-cap exceeded",
+                    "tp": 0, "fp": 0, "fn": len(fx["ground_truth"].get("issues", [])),
+                    "precision": 0.0, "recall": 0.0, "f1": 0.0,
+                })
+                _PROGRESS_COUNTER["done"] += 1
+                continue
+            try:
+                async with sem:
+                    d = await _dispatch(name, spec, prompt, timeout)
+            except Exception as e:
+                await _log_progress(f"{name:<16} {fx['name']:<18} run {idx+1}/{runs}  EXCEPTION: {type(e).__name__}: {str(e)[:80]}")
+                d = {"findings": [], "latency_sec": 0.0, "exit_code": 1, "error": f"{type(e).__name__}: {e}"}
             scored = _score(d["findings"], fx["ground_truth"])
             run_data.append({
                 "run_idx": idx,
@@ -134,6 +179,9 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
             })
             for f in d["findings"]:
                 merged_keys.add((f.get("file", ""), int(f.get("line", 0) or 0)))
+            _PROGRESS_COUNTER["done"] += 1
+            status = "err" if d["exit_code"] != 0 else f"F1={scored['f1']:.2f}"
+            await _log_progress(f"{name:<16} {fx['name']:<18} run {idx+1}/{runs}  {d['latency_sec']:>5.1f}s  {status}")
         findings_keys_per_fixture.append(merged_keys)
 
         n = len(run_data) or 1
@@ -147,6 +195,18 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
         per_fixture.append({"fixture": fx["name"], "runs": run_data, "avg": avg})
 
     nf = len(per_fixture) or 1
+    await _log_progress(f"{name:<16} *** reviewer complete ({nf} fixtures × {runs} runs)")
+    # Incremental per-reviewer JSON (tailable) if ts provided
+    if ts:
+        try:
+            reviewer_dir = BENCHMARKS_DIR / ts / "per_reviewer"
+            reviewer_dir.mkdir(parents=True, exist_ok=True)
+            (reviewer_dir / f"{name}.json").write_text(
+                json.dumps({"reviewer": name, "fixtures": per_fixture}, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            sys.stderr.write(f"incremental write failed for {name}: {e}\n")
     overall = {
         "precision": round(sum(fr["avg"]["precision"] for fr in per_fixture) / nf, 3),
         "recall":    round(sum(fr["avg"]["recall"]    for fr in per_fixture) / nf, 3),
@@ -321,14 +381,37 @@ async def _main_async(args) -> int:
     # Filter out reviewers not in registry
     roster = [n for n in roster if n in cfg["reviewers"]]
 
-    print(f"Benchmarking {len(roster)} reviewers × {len(fixtures)} fixtures × {args.runs} runs = {len(roster)*len(fixtures)*args.runs} calls", file=sys.stderr)
+    total_calls = len(roster) * len(fixtures) * args.runs
+    print(f"Benchmarking {len(roster)} reviewers × {len(fixtures)} fixtures × {args.runs} runs = {total_calls} calls", file=sys.stderr)
 
+    global PROGRESS, _PROGRESS_LOCK, _PROGRESS_START
+    PROGRESS = bool(args.progress)
+    _PROGRESS_LOCK = asyncio.Lock()
+    _PROGRESS_COUNTER["total"] = total_calls
+    _PROGRESS_COUNTER["done"] = 0
+    _PROGRESS_START = time.monotonic()
+
+    ts = args.benchmark_ts or time.strftime("%Y%m%dT%H%M%S")
     sem = asyncio.Semaphore(max_parallel)
-    tasks = [_bench_reviewer(n, cfg["reviewers"][n], fixtures, args.runs, timeout, sem) for n in roster]
-    results = await asyncio.gather(*tasks)
+    tasks = [_bench_reviewer(n, cfg["reviewers"][n], fixtures, args.runs, timeout, sem,
+                              ts=ts, max_wall_sec=args.max_wall_sec) for n in roster]
+    gathered = await asyncio.gather(*tasks, return_exceptions=True)
+    # Replace exceptions with error stubs so we never lose everything
+    results = []
+    for n, r in zip(roster, gathered):
+        if isinstance(r, Exception):
+            sys.stderr.write(f"FATAL in {n}: {type(r).__name__}: {r}\n")
+            results.append({
+                "reviewer": n,
+                "fixtures": [],
+                "overall": {"precision": 0.0, "recall": 0.0, "f1": 0.0, "avg_latency": 0.0},
+                "_keys_per_fixture": [set() for _ in fixtures],
+                "fatal_error": f"{type(r).__name__}: {r}",
+            })
+        else:
+            results.append(r)
 
     agreement = _agreement_matrix(results)
-    ts = time.strftime("%Y%m%dT%H%M%S")
     _write_history(results, ts)
     md_out, json_out = _write_outputs(results, fixtures, args.runs, ts, agreement)
 
@@ -343,6 +426,9 @@ def main() -> int:
     ap.add_argument("--roster", help="comma-separated reviewer names")
     ap.add_argument("--profile", help="named profile (default: panel)")
     ap.add_argument("--fixtures", help="comma-separated fixture names to run (default: all)")
+    ap.add_argument("--progress", action="store_true", help="log per-run progress to stderr")
+    ap.add_argument("--benchmark-ts", default=None, help="shared timestamp for parallel-shell runs (same TS = merged output dir)")
+    ap.add_argument("--max-wall-sec", type=int, default=600, help="hard wall-time cap per reviewer (default 600s)")
     args = ap.parse_args()
     return asyncio.run(_main_async(args))
 
