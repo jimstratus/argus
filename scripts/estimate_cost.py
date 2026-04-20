@@ -27,6 +27,7 @@ def main() -> int:
     ap.add_argument("--expected-output-tokens", type=int, default=None)
     ap.add_argument("--runs-per-fixture", type=int, default=1)
     ap.add_argument("--fixtures", type=int, default=1)
+    ap.add_argument("--skip-balance-check", action="store_true", help="skip the OpenRouter balance pre-flight")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -82,6 +83,26 @@ def main() -> int:
         return 2
     if total >= warn:
         sys.stderr.write(f"\nWARN: estimated ${total:.2f} exceeds soft threshold ${warn:.2f}.\n")
+
+    # OR balance pre-flight for non-dry invocations
+    if not args.skip_balance_check:
+        uses_openrouter = any(
+            (cfg["reviewers"].get(name, {}).get("primary", {}).get("client") == "openrouter")
+            or (cfg["reviewers"].get(name, {}).get("fallback", {}).get("client") == "openrouter")
+            for name in roster
+        )
+        import os as _os
+        if uses_openrouter and _os.environ.get("OPENROUTER_API_KEY"):
+            try:
+                from or_balance import probe
+                info = probe(_os.environ["OPENROUTER_API_KEY"])
+                available = info.get("available_usd")
+                safety = float(d.get("or_balance_safety_factor", 2.0))
+                if available is not None and available < total * safety:
+                    sys.stderr.write(f"\nOR BALANCE WARN: available ${available:.4f} < {safety}× estimate ${total:.4f}. Top up or use --yes-cost at dispatch time.\n")
+                    return max(1, 1)  # warn-level; dispatch will block via its own gate
+            except Exception as e:
+                sys.stderr.write(f"OR balance check failed (non-fatal): {e}\n")
         return 1
     return 0
 

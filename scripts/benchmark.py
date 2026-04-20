@@ -453,9 +453,10 @@ async def _main_async(args) -> int:
             from or_balance import probe
             info = probe(os.environ["OPENROUTER_API_KEY"])
             available = info.get("available_usd")
+            safety = float(defaults.get("or_balance_safety_factor", 2.0))
             if available is not None:
-                required = est_total * 2.0  # 2× safety factor
-                print(f"OpenRouter available: ${available:.4f}  (required ≥ 2× estimate = ${required:.4f})", file=sys.stderr)
+                required = est_total * safety
+                print(f"OpenRouter available: ${available:.4f}  (required ≥ {safety}× estimate = ${required:.4f})", file=sys.stderr)
                 if available < required and not yes_cost_override:
                     print(f"BLOCKED: OR balance ${available:.4f} < required ${required:.4f}. Top up or use --yes-cost.", file=sys.stderr)
                     return 2

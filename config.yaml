@@ -33,6 +33,8 @@ defaults:
   daily_soft_cap_usd: 10.00
   default_output_tokens_est: 800
   prompt_overhead_tokens: 500
+  # OR balance pre-flight: require available ≥ estimate × this factor.
+  or_balance_safety_factor: 2.0
 
 # ─────────────────────────────────────────────────────────────────────
 # Reviewers
@@ -119,7 +121,10 @@ reviewers:
     privacy: ok
     custom_only: true
     cost_per_m: { input: 1.50, output: 4.50 }
-    primary:  { route: aichat, client: nous,       model: "Hermes-4.3-36B" }          # TODO verify Nous portal id
+    # Nous Portal model ID — only used when NOUSRESEARCH_API_KEY is set
+    # (it isn't in this env, so fallback via OR is what actually runs).
+    # Verified OR slug; direct slug unconfirmed — update on first successful call.
+    primary:  { route: aichat, client: nous,       model: "Hermes-4.3-36B" }
     fallback: { route: aichat, client: openrouter, model: "nousresearch/hermes-4-405b" }
 
   # Paid-CLI reviewers — no cost attached (use host subscription)
@@ -242,8 +247,16 @@ aichat_clients:
       chat_completions:
         ".*":
           body:
+            # Exclude the reasoning field from responses entirely.
             reasoning:
               exclude: true
+              # Cap the provider's internal reasoning budget. Without this,
+              # reasoning models (z-ai/glm-5.1, minimax/minimax-m2.7) can
+              # spend 3+ minutes thinking on a 30K-token diff even when we
+              # don't want to see the thoughts. 2000 tokens ≈ 30-60s budget.
+              max_tokens: 2000
+            # Route away from known reasoning-only providers that return
+            # content=null when reasoning is trimmed or budget-capped.
             provider:
               ignore: ["io.net", "together.ai"]
   zai:

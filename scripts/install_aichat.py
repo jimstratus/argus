@@ -59,8 +59,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="print the proposed config but don't write")
     ap.add_argument("--config-path", default=None, help="override aichat config location")
-    ap.add_argument("--force", action="store_true", help="overwrite existing aichat config")
+    ap.add_argument("--force", action="store_true", help="overwrite existing aichat config entirely")
+    ap.add_argument("--merge", action="store_true", help="merge Argus clients into existing aichat config, preserving user's other clients and non-clients sections")
     args = ap.parse_args()
+    if args.force and args.merge:
+        sys.stderr.write("--force and --merge are mutually exclusive\n")
+        return 2
 
     argus_cfg = load_config()
     out_cfg = build_aichat_config(argus_cfg)
@@ -83,7 +87,7 @@ def main() -> int:
 
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    if target.exists() and not args.force:
+    if target.exists() and not args.force and not args.merge:
         existing = target.read_text(encoding="utf-8")
         if existing.strip() == yaml_text.strip():
             print(f"{target} already matches desired config — no changes.", file=sys.stderr)
@@ -91,7 +95,19 @@ def main() -> int:
             sibling = target.with_suffix(".argus.yaml")
             sibling.write_text(yaml_text, encoding="utf-8")
             print(f"{target} exists with different content. Wrote sibling: {sibling}", file=sys.stderr)
-            print("Run with --force to overwrite the main config, or merge manually.", file=sys.stderr)
+            print("Run with --force to overwrite the main config, or --merge to merge Argus clients into it.", file=sys.stderr)
+    elif target.exists() and args.merge:
+        existing_cfg = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+        existing_clients = existing_cfg.get("clients") or []
+        argus_client_names = {c["name"] for c in out_cfg["clients"]}
+        # Keep user's non-Argus clients; replace Argus clients with fresh versions.
+        kept = [c for c in existing_clients if c.get("name") not in argus_client_names]
+        merged_cfg = dict(existing_cfg)
+        merged_cfg["clients"] = kept + out_cfg["clients"]
+        target.write_text(yaml.safe_dump(merged_cfg, sort_keys=False), encoding="utf-8")
+        print(f"merged {len(out_cfg['clients'])} Argus clients into {target}", file=sys.stderr)
+        print(f"  kept user clients: {[c.get('name') for c in kept]}", file=sys.stderr)
+        print(f"  (re)wrote Argus clients: {sorted(argus_client_names)}", file=sys.stderr)
     else:
         target.write_text(yaml_text, encoding="utf-8")
         print(f"wrote {target}")
