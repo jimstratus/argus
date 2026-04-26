@@ -496,6 +496,15 @@ argus/
 
 ---
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [SKILL.md](SKILL.md) | Claude Code skill entry — what `/argus` runs |
+| [CLAUDE.md](CLAUDE.md) | AI coding assistant project context |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Development guide and key scripts |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
+
 ## Contributing
 
 See `CONTRIBUTING.md`. TL;DR: reviewer/provider changes are config-only. Fixture contributions sharpen the benchmark and are the highest-leverage way to help.
