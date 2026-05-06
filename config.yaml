@@ -24,7 +24,11 @@ defaults:
   confidence_threshold: 80        # drop findings with effective confidence < this
   corroboration_boost: 15         # confidence bonus when 2+ reviewers agree on same file:line
   ctx_safety_ratio: 0.70          # skip reviewer if prompt_tokens > ctx * this
-  reviewer_timeout_sec: 180
+  reviewer_timeout_sec: 360       # bumped from 180 on 2026-05-06 after a 4-doc
+                                  # ~80K-token bundle had 5/7 reviewers timeout.
+                                  # 360s handles bundles up to ~150K tokens; for
+                                  # larger bundles, callers should split or
+                                  # raise per-call via --timeout in dispatch.py.
   max_parallel: 4                 # cap on concurrent reviewers within a single
                                   # dispatch.py invocation; also the recommended
                                   # cap on parallel subagents when the calling
@@ -285,7 +289,7 @@ aichat_clients:
 # ─────────────────────────────────────────────────────────────────────
 cli_commands:
   aichat:       ["aichat", "-m", "{client}:{model}", "-S"]   # prompt via stdin
-  gemini-cli:   ["gemini", "--yolo", "-p", "{prompt}"]       # prompt via arg (stdin was unreliable)
+  gemini-cli:   ["gemini", "--yolo", "-p", ""]               # prompt via STDIN (empty -p forces non-interactive; Windows ARG_MAX broke {prompt} for >32KB diffs, fixed 2026-05-06)
   codex-cli:    ["codex", "exec", "--skip-git-repo-check", "-"]   # stdin input; skip git-repo trust check
   claude-cli:   ["claude", "-p", "--output-format", "text", "--bare"]   # stdin
   opencode-cli: ["opencode", "run", "-"]                     # stdin input
