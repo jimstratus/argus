@@ -25,7 +25,10 @@ defaults:
   corroboration_boost: 15         # confidence bonus when 2+ reviewers agree on same file:line
   ctx_safety_ratio: 0.70          # skip reviewer if prompt_tokens > ctx * this
   reviewer_timeout_sec: 180
-  max_parallel: 6
+  max_parallel: 4                 # cap on concurrent reviewers within a single
+                                  # dispatch.py invocation; also the recommended
+                                  # cap on parallel subagents when the calling
+                                  # agent fans out subagent-per-reviewer.
   review_cost_warn_usd: 0.50
   review_cost_block_usd: 2.00
   benchmark_cost_warn_usd: 10.00

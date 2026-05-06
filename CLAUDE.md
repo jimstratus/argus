@@ -94,6 +94,12 @@ py -3.12 "$ARGUS_HOME/scripts/verify.py" --all
 ```
 
 ### End-to-end review on current diff
+
+**Default dispatch pattern is subagent-per-reviewer with a 4-at-a-time
+concurrency cap** — see `SKILL.md` step 6 for the canonical recipe. The
+single-process invocation below remains valid as the legacy / quick path
+for rosters of ≤4 reviewers.
+
 ```bash
 RUN_DIR="$ARGUS_HOME/runs/$(date +%Y%m%dT%H%M%S)-manual"
 mkdir -p "$RUN_DIR"

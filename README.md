@@ -35,6 +35,23 @@ Argus dispatches a diff, PR, or file set to a roster of frontier LLM reviewers �
 
 It also benchmarks reviewers against labeled fixtures so you can see which models actually find bugs in your domain vs. which ones hallucinate them.
 
+## Dispatch pattern
+
+Argus has two dispatch modes; the calling agent picks one per run:
+
+- **Default — subagent-per-reviewer.** The calling agent fans out one
+  subagent per reviewer (Claude Code: Agent tool with
+  `run_in_background: true`), each running `dispatch.py` against a single
+  reviewer. Concurrency cap: **4 parallel subagents**. If the roster has
+  more than 4 reviewers, queue the rest and dispatch as each completes.
+  Gives per-reviewer streaming visibility and isolated failure modes.
+- **Legacy / quick path — single-process dispatch.** For rosters of ≤4
+  reviewers (or when per-reviewer subagent visibility isn't needed), call
+  `dispatch.py --roster a,b,c,d` once. Argus's internal
+  `defaults.max_parallel: 4` (config.yaml) still applies.
+
+See [`SKILL.md` step 6](SKILL.md) for the canonical execution recipe.
+
 ## Why
 
 - **A single LLM reviewer misses bugs.** (They all do, including Opus and GPT-5.)

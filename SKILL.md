@@ -104,6 +104,35 @@ If `--dry-run`: stop here and print roster + estimate. Do not dispatch.
 
 ## 6. Dispatch
 
+Argus supports two dispatch modes. **Subagent-per-reviewer is the default
+recommended pattern** — single-process is the legacy / quick path.
+
+### 6a. Default: subagent-per-reviewer (recommended)
+
+When more than one reviewer is in the roster, the calling agent should
+dispatch ONE subagent per reviewer via the parent platform's Agent /
+subagent API (Claude Code: Agent tool with `run_in_background: true`).
+Each subagent runs:
+
+```bash
+python "$ARGUS_HOME/scripts/dispatch.py" \
+  --run-dir "$RUN_DIR" \
+  --roster "<single-reviewer-name>" \
+  --diff   "$RUN_DIR/diff.patch" \
+  [--overlay security|deep]
+```
+
+**Concurrency cap: at most 4 subagents running in parallel.** If the roster
+has more than 4 reviewers, dispatch the first 4 in a wave, then queue the
+rest and dispatch as each completes. This matches `defaults.max_parallel: 4`
+in config.yaml and keeps per-reviewer visibility (independent timestamps,
+streaming progress, isolated failure modes).
+
+### 6b. Legacy / quick path: single-process dispatch
+
+For a roster of ≤4 reviewers OR when per-reviewer subagent visibility isn't
+needed, the calling agent MAY run argus's in-process dispatch:
+
 ```bash
 python "$ARGUS_HOME/scripts/dispatch.py" \
   --run-dir "$RUN_DIR" \
@@ -112,9 +141,14 @@ python "$ARGUS_HOME/scripts/dispatch.py" \
   [--overlay security|deep]
 ```
 
-Parallel subprocess fan-out via per-CLI adapters. Each reviewer writes
-`$RUN_DIR/reviews/<name>.json`. Timeouts, non-zero exits, and parse failures
-are logged but do not abort the run; other reviewers continue.
+This still uses argus's internal `max_parallel: 4` cap from config.yaml.
+
+### 6c. Failure semantics (both modes)
+
+Each reviewer writes `$RUN_DIR/reviews/<name>.json`. Timeouts, non-zero
+exits, and parse failures are logged but do not abort the run; other
+reviewers continue. After all reviewers return (subagent or in-process),
+run `merge.py` exactly once in the main session (step 7).
 
 ## 7. Merge + filter
 
