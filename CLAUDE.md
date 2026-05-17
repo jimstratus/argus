@@ -96,9 +96,18 @@ py -3.12 "$ARGUS_HOME/scripts/verify.py" --all
 ### End-to-end review on current diff
 
 **Default dispatch pattern is subagent-per-reviewer with a 4-at-a-time
-concurrency cap** — see `SKILL.md` step 6 for the canonical recipe. The
-single-process invocation below remains valid as the legacy / quick path
-for rosters of ≤4 reviewers.
+concurrency cap** — see `SKILL.md` step 6 for the canonical recipe.
+
+**Subagent prompt MUST require synchronous execution** of `dispatch.py`
+(no `run_in_background` inside the subagent itself). If omitted, the
+subagent's session ends before dispatch.py completes and the review JSON
+is never written — observed in the wild as a "completed" subagent that
+reports a plan ("I'll wait for the dispatch...") instead of results.
+SKILL.md §6a has the canonical subagent prompt template that includes
+the synchronous-execution wording.
+
+The single-process invocation below remains valid as the legacy / quick
+path for rosters of ≤4 reviewers.
 
 ```bash
 RUN_DIR="$ARGUS_HOME/runs/$(date +%Y%m%dT%H%M%S)-manual"
