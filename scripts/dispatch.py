@@ -75,13 +75,14 @@ async def _dispatch_one(name: str, spec: dict, prompt: str, timeout: int) -> dic
         return result
 
     parsed = extract_json(stdout)
-    if parsed is None:
+    # Require the schema's findings list — extract_json can recover an
+    # arbitrary inner object from prose, which is still a failed review.
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("findings"), list):
         result["parse_error"] = True
         result["raw_preview"] = stdout[:2000]
         return result
 
-    findings_raw = parsed.get("findings") if isinstance(parsed, dict) else None
-    result["findings"] = normalize_findings(findings_raw or [])
+    result["findings"] = normalize_findings(parsed["findings"])
     return result
 
 

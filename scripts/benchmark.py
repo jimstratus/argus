@@ -144,8 +144,10 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int) -> dict:
     parse_error = False
     if r["exit_code"] == 0:
         parsed = extract_json(r["stdout"])
-        if isinstance(parsed, dict):
-            findings = normalize_findings(parsed.get("findings", []))
+        # Require the schema's findings list — extract_json can recover an
+        # arbitrary inner object from prose, which is still a failed review.
+        if isinstance(parsed, dict) and isinstance(parsed.get("findings"), list):
+            findings = normalize_findings(parsed["findings"])
         else:
             parse_error = True
     total_latency = primary_latency + fallback_latency
