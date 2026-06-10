@@ -75,6 +75,8 @@ argus/
 │       ├── opencode_cli.py
 │       └── copilot_cli.py
 ├── fixtures/                   # Benchmark inputs (diff.patch + ground-truth.json)
+├── tests/                      # Unit tests (pytest; run in CI)
+├── .github/workflows/ci.yml    # GitHub Actions — pytest on push/PR
 ├── runs/                       # Per-invocation artifacts (gitignored)
 ├── benchmarks/                 # Leaderboard outputs (gitignored)
 └── history.db                  # SQLite — runs, findings, benchmarks (gitignored)
@@ -141,31 +143,157 @@ python scripts/stats.py
 
 ## Architecture Notes
 
+### Roster Policy — single source of truth
+
+All roster policy lives in `_common.resolve_roster` — dispatch.py and
+benchmark.py both call it; **never add inline roster filters elsewhere**.
+Semantics:
+
+| | explicit `--roster` names | profile-based roster |
+|---|---|---|
+| `disabled: true` | kept (explicit naming = intent) | dropped |
+| `custom_only: true` | kept | dropped |
+| `tier: free` | needs `--allow-free` | needs `--allow-free` |
+| `privacy: LOGS` | needs `--allow-logging` | needs `--allow-logging` |
+| host_rules `skip` | applied | applied |
+| host_rules `add` | **not** applied | applied |
+| not in registry | dropped | dropped |
+
+Drops are written to `dispatch_summary.json` under `"dropped"` and noted on
+stderr. `estimate_cost.py` rejects unknown reviewer names outright (exit 2,
+labeled `INVALID ROSTER` so it can't be mistaken for a cost block).
+
 ### Host-CLI Awareness
 
-`detect_host.py` inspects env + parent process tree. Returns `claude | codex | gemini | opencode | unknown`. The matching reviewer is removed from the roster; non-claude hosts auto-add `claude`.
+`detect_host.py` inspects env markers + the parent process tree. Returns
+`claude | codex | gemini | opencode | unknown`. Env markers are specific
+variables (e.g. `CLAUDECODE=1`, `CODEX_SANDBOX`) — credential-shaped vars
+like `CODEX_API_KEY` don't trigger detection. The process walk (psutil, up
+to 8 levels) matches argv[0]/argv[1] basenames only, never full command
+lines, so a wrapping shell containing `--roster codex` can't misdetect.
 
 ### Confidence Filter + Corroboration
 
-- Findings with effective confidence < 80 are dropped
-- +15 confidence bonus (cap 100) when >=2 reviewers flag the same file:line
-- Merge dedupes by exact file:line
+- Findings with effective confidence < 80 are dropped (`defaults.confidence_threshold`)
+- +15 confidence bonus, cap 100, when >=2 reviewers agree (`defaults.corroboration_boost`)
+- Merge clusters findings per file by anchor-based line proximity within
+  `defaults.merge_line_tolerance` (default ±3, `--line-tolerance` to override);
+  the cluster reports its median line, worst severity, and concatenated
+  descriptions. See README "Merge logic" for the dual-tolerance walk.
 
 ### Cost Gates
 
 | Mode | Warn | Hard block | Override |
 |------|------|-----------|----------|
 | review | $0.50 | $2.00 | `--yes-cost` |
-| benchmark | $10 | $30 | `--yes-cost` |
-| OR balance | (auto) | `available < safety × estimate` | `--skip-balance-check` |
+| benchmark | $10 | $30 | `--yes-cost` / `ARGUS_YES_COST=1` |
+| OR balance | warn in review mode | blocks in benchmark mode | `--skip-balance-check` |
+
+`estimate_cost.py` exit codes: `0` OK, `1` warn, `2` block or invalid roster
+(check stderr). Paid-CLI reviewers (`cost_per_m: null`) count as $0.
+
+### Subprocess Layer
+
+`_common.run_subprocess` resolves argv[0] via a cached `shutil.which`, pipes
+the prompt on **stdin** (never argv — Windows ARG_MAX), and on timeout kills
+the entire process tree: children run in their own session, `os.killpg` on
+POSIX, `taskkill /T /F` on Windows. Adapters return a uniform dict:
+`{route, cmd, exit_code, stdout, stderr, latency_sec}`.
+
+`load_config()` is `lru_cache`d and returns a **shared dict — treat it as
+read-only**. The prompt template read is cached too.
 
 ### JSON Extraction
 
-`_common.extract_json` handles: raw JSON, `<think>` reasoning blocks (Qwen3/DeepSeek-R1), fenced code blocks, and embedded objects by "findings" or "ok" key.
+`_common.extract_json` tries, in order: raw parse → strip `<think>` blocks
+(Qwen3/DeepSeek-R1) → fenced code blocks → balanced object containing
+`"findings"`/`"ok"` → a single O(n) string-aware pass over all balanced
+`{...}` spans (max 50 parse attempts). The scanner tracks string/escape
+state, so braces inside description values don't truncate the object.
+`normalize_findings` clamps off-enum severities to `medium`.
+
+### Benchmark Scoring
+
+```mermaid
+flowchart TB
+    A["dispatch reviewer x fixture x run"] --> B{"exit_code == 0?"}
+    B -->|no| Z["zero-score<br>P=R=F1=0, fn=len(issues)"]
+    B -->|yes| C{"JSON parsed?"}
+    C -->|"no (parse_error)"| Z
+    C -->|yes| D{"fixture has issues?"}
+    D -->|"no (clean baseline)"| E{"findings empty?"}
+    E -->|yes| P["perfect<br>P=R=F1=1.0"]
+    E -->|no| Z2["all false positives<br>P=R=F1=0"]
+    D -->|yes| F["match by file +<br>line within tolerance"]
+    F --> G["tp/fp/fn -> P, R, F1"]
+
+    style Z fill:#ffb6c1,stroke:#c71585
+    style Z2 fill:#ffb6c1,stroke:#c71585
+    style P fill:#98fb98,stroke:#2e8b57
+```
+
+The clean-baseline `1.0` applies **only to successful, parseable runs** —
+a reviewer whose call failed or returned prose is zero-scored everywhere,
+so broken reviewers can't rank above working ones. `aggregate_bench.py`
+applies the same rule when re-scoring per-reviewer JSONs from
+parallel-shell runs. Benchmark timestamps are UTC.
+
+### history.db Schema
+
+```mermaid
+erDiagram
+    runs ||--o{ reviewer_runs : "run_id"
+    runs ||--o{ findings : "run_id"
+    runs {
+        TEXT run_id PK
+        TEXT ts "UTC ISO-8601"
+        TEXT roster
+        TEXT diff_sha256
+        REAL latency_sec
+    }
+    reviewer_runs {
+        TEXT run_id PK,FK
+        TEXT reviewer PK
+        TEXT route
+        INTEGER exit_code
+        INTEGER fallback_used
+        REAL latency_sec
+        INTEGER n_findings
+        TEXT error
+    }
+    findings {
+        TEXT run_id PK,FK
+        INTEGER idx PK
+        TEXT file
+        INTEGER line
+        TEXT severity
+        INTEGER confidence
+        INTEGER n_reviewers
+        TEXT reviewers
+    }
+    benchmarks {
+        TEXT ts PK "UTC compact YYYYMMDDTHHMMSS"
+        TEXT reviewer PK
+        TEXT fixture PK
+        INTEGER run_idx PK
+        REAL precision
+        REAL recall
+        REAL f1
+        REAL latency_sec
+        TEXT error
+    }
+```
+
+`benchmarks` is keyed independently (no FK to `runs`) — review runs and
+benchmark runs are separate timelines. `stats.py --since` normalizes both
+timestamp formats to a common `YYYYMMDDTHHMMSS` prefix before comparing.
 
 ## Testing
 
 ```bash
+# Unit tests (no network, no API keys; also run by CI on every push/PR)
+python -m pytest tests/ -q
+
 # Verify all routes are reachable
 python scripts/verify.py --all
 
@@ -177,6 +305,12 @@ python scripts/estimate_cost.py --roster "glm-5.1,minimax-m2.7,gemini-or,codex" 
   --diff <(git diff HEAD)
 ```
 
+Unit coverage: `extract_json` edge cases (think-blocks, fences,
+braces-in-strings, O(n) garbage handling), merge clustering/corroboration,
+benchmark scoring, and `run_subprocess` timeout + process-tree kill.
+Always dry-run a benchmark (`--runs 1 --fixtures <one>`) with a new roster
+before a full run — it catches provider-config bugs in ~30s instead of 40min.
+
 ## Code Style
 
 - Python 3.12+. Type hints where they clarify; not exhaustive.
@@ -185,7 +319,7 @@ python scripts/estimate_cost.py --roster "glm-5.1,minimax-m2.7,gemini-or,codex" 
 
 ## Known Gotchas
 
-- **Windows .cmd shim tree-kill**: Node CLIs (gemini, copilot) don't tree-kill children on subprocess timeout. Use `gemini-or` instead.
+- **Windows .cmd shim tree-kill**: fixed — `run_subprocess` kills the whole process tree on timeout (killpg on POSIX, `taskkill /T /F` on Windows). gemini-direct stays disabled until re-tested on Windows; `gemini-or` remains the default route.
 - **OpenRouter reasoning providers**: `z-ai/glm-5.1` and `minimax/minimax-m2.7` may route to providers returning `{content: null}`. Mitigation: aichat patch applies reasoning-exclude + provider-ignore.
-- **Argv length on Windows (~32KB)**: gemini-cli and copilot-cli embed prompts as CLI args. Diffs >30KB fail. Use `--files` to scope.
+- **Argv length on Windows (~32KB)**: fixed — all CLI adapters pipe the prompt via stdin; no adapter embeds it in argv.
 - **Full-codebase audit prompt mismatch**: Default prompt optimized for PR review. Use `--overlay audit` for empty-tree→HEAD diffs.

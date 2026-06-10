@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -28,6 +29,7 @@ def main() -> int:
     ap.add_argument("--runs-per-fixture", type=int, default=1)
     ap.add_argument("--fixtures", type=int, default=1)
     ap.add_argument("--skip-balance-check", action="store_true", help="skip the OpenRouter balance pre-flight")
+    ap.add_argument("--yes-cost", action="store_true", help="downgrade a cost block to a warning (exit 1 instead of 2)")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -38,6 +40,15 @@ def main() -> int:
     diff_text = Path(args.diff).read_text(encoding="utf-8", errors="replace")
     in_tokens = estimate_tokens(diff_text) + prompt_overhead
     roster = [r.strip() for r in args.roster.split(",") if r.strip()]
+
+    unknown = [n for n in roster if n not in cfg["reviewers"]]
+    if unknown:
+        sys.stderr.write(
+            f"INVALID ROSTER (not a cost block — --yes-cost will not help): "
+            f"unknown reviewer(s): {', '.join(unknown)}. "
+            f"Known: {', '.join(sorted(cfg['reviewers']))}\n"
+        )
+        return 2
 
     rows = []
     total = 0.0
@@ -78,11 +89,17 @@ def main() -> int:
     }
     print(json.dumps(out, indent=2))
 
+    rc = 0
     if total >= block:
-        sys.stderr.write(f"\nBLOCK: estimated ${total:.2f} exceeds hard cap ${block:.2f}. Pass --yes-cost to override.\n")
-        return 2
-    if total >= warn:
+        if args.yes_cost:
+            sys.stderr.write(f"\nWARN: estimated ${total:.2f} exceeds hard cap ${block:.2f} — overridden with --yes-cost.\n")
+            rc = 1
+        else:
+            sys.stderr.write(f"\nBLOCK: estimated ${total:.2f} exceeds hard cap ${block:.2f}. Pass --yes-cost to override.\n")
+            return 2
+    elif total >= warn:
         sys.stderr.write(f"\nWARN: estimated ${total:.2f} exceeds soft threshold ${warn:.2f}.\n")
+        rc = 1
 
     # OR balance pre-flight for non-dry invocations
     if not args.skip_balance_check:
@@ -91,20 +108,18 @@ def main() -> int:
             or (cfg["reviewers"].get(name, {}).get("fallback", {}).get("client") == "openrouter")
             for name in roster
         )
-        import os as _os
-        if uses_openrouter and _os.environ.get("OPENROUTER_API_KEY"):
+        if uses_openrouter and os.environ.get("OPENROUTER_API_KEY"):
             try:
                 from or_balance import probe
-                info = probe(_os.environ["OPENROUTER_API_KEY"])
+                info = probe(os.environ["OPENROUTER_API_KEY"])
                 available = info.get("available_usd")
                 safety = float(d.get("or_balance_safety_factor", 2.0))
                 if available is not None and available < total * safety:
-                    sys.stderr.write(f"\nOR BALANCE WARN: available ${available:.4f} < {safety}× estimate ${total:.4f}. Top up or use --yes-cost at dispatch time.\n")
-                    return max(1, 1)  # warn-level; dispatch will block via its own gate
+                    sys.stderr.write(f"\nOR BALANCE WARN: available ${available:.4f} < {safety}× estimate ${total:.4f}. Top up before dispatching.\n")
+                    rc = max(rc, 1)
             except Exception as e:
                 sys.stderr.write(f"OR balance check failed (non-fatal): {e}\n")
-        return 1
-    return 0
+    return rc
 
 
 if __name__ == "__main__":

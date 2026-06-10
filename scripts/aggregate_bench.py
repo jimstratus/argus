@@ -26,7 +26,12 @@ def _rescore_run(run: dict) -> dict:
     """Recompute P/R/F1 from tp/fp/fn with the clean-baseline rule (repairs pre-fix data).
 
     Clean-baseline rule: tp==fp==fn==0 → P=R=F1=1.0 (reviewer correctly found nothing).
+    Failed calls (non-zero exit_code, an error, or unparseable output) are
+    zero-scored — tp==fp==fn==0 there means "never ran", not "found nothing".
     """
+    if int(run.get("exit_code", 0) or 0) != 0 or run.get("error") or run.get("parse_error"):
+        run["precision"], run["recall"], run["f1"] = 0.0, 0.0, 0.0
+        return run
     tp = int(run.get("tp", 0) or 0)
     fp = int(run.get("fp", 0) or 0)
     fn = int(run.get("fn", 0) or 0)

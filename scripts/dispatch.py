@@ -19,8 +19,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
     load_config, build_prompt, estimate_tokens, extract_json,
-    normalize_findings, ARGUS_HOME,
+    normalize_findings, resolve_roster,
 )
+from detect_host import detect as detect_host
 import adapters
 
 
@@ -74,13 +75,14 @@ async def _dispatch_one(name: str, spec: dict, prompt: str, timeout: int) -> dic
         return result
 
     parsed = extract_json(stdout)
-    if parsed is None:
+    # Require the schema's findings list — extract_json can recover an
+    # arbitrary inner object from prose, which is still a failed review.
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("findings"), list):
         result["parse_error"] = True
         result["raw_preview"] = stdout[:2000]
         return result
 
-    findings_raw = parsed.get("findings") if isinstance(parsed, dict) else None
-    result["findings"] = normalize_findings(findings_raw or [])
+    result["findings"] = normalize_findings(parsed["findings"])
     return result
 
 
@@ -91,7 +93,21 @@ async def _main_async(args) -> int:
     max_parallel = int(defaults["max_parallel"])
     ctx_safety = float(defaults["ctx_safety_ratio"])
 
-    roster = [r.strip() for r in args.roster.split(",") if r.strip()]
+    names = [r.strip() for r in args.roster.split(",") if r.strip()]
+    host, _ = detect_host()
+    # --roster names are explicit: disabled/custom_only are waived and
+    # host_rules `add` is not applied; host `skip` and tier/privacy still hold.
+    roster, drops = resolve_roster(
+        cfg, "custom", names, host,
+        allow_free=bool(args.allow_free or defaults.get("allow_free")),
+        allow_logging=bool(args.allow_logging or defaults.get("allow_logging")),
+        explicit=True,
+    )
+    for n, reason in drops:
+        sys.stderr.write(f"roster: dropped {n} — {reason}\n")
+    if not roster:
+        sys.stderr.write("roster: empty after policy filtering\n")
+        return 1
     diff = Path(args.diff).read_text(encoding="utf-8", errors="replace")
     prompt = build_prompt(diff, overlay=args.overlay)
 
@@ -105,9 +121,8 @@ async def _main_async(args) -> int:
 
     async def _bounded(name: str) -> dict:
         async with sem:
-            spec = cfg["reviewers"].get(name)
-            if not spec:
-                return {"name": name, "error": "unknown reviewer"}
+            # resolve_roster guarantees roster ⊆ registry
+            spec = cfg["reviewers"][name]
 
             # Context-window pre-check
             ctx = int(spec.get("ctx", 0) or 0)
@@ -121,14 +136,31 @@ async def _main_async(args) -> int:
                 (reviews_dir / f"{name}.json").write_text(json.dumps(r, indent=2), encoding="utf-8")
                 return r
 
-            r = await _dispatch_one(name, spec, prompt, timeout)
+            try:
+                r = await _dispatch_one(name, spec, prompt, timeout)
+            except Exception as e:
+                r = {"name": name, "findings": [], "exit_code": 1,
+                     "error": f"{type(e).__name__}: {e}"}
             (reviews_dir / f"{name}.json").write_text(json.dumps(r, indent=2), encoding="utf-8")
             return r
 
-    results = await asyncio.gather(*[_bounded(n) for n in roster])
+    gathered = await asyncio.gather(*[_bounded(n) for n in roster], return_exceptions=True)
+    results = []
+    for n, r in zip(roster, gathered):
+        if isinstance(r, BaseException):
+            r = {"name": n, "findings": [], "exit_code": 1,
+                 "error": f"{type(r).__name__}: {r}"}
+            # Keep the contract that every roster entry produces a
+            # reviews/<name>.json — merge.py only reads those files.
+            try:
+                (reviews_dir / f"{n}.json").write_text(json.dumps(r, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+        results.append(r)
 
     summary = {
         "roster": roster,
+        "dropped": {n: reason for n, reason in drops},
         "prompt_tokens_est": prompt_tokens,
         "reviewers": {
             r["name"]: {
@@ -157,6 +189,8 @@ def main() -> int:
     ap.add_argument("--diff", required=True)
     ap.add_argument("--overlay", default=None, help="prompt overlay name (security|deep|...)")
     ap.add_argument("--timeout", type=int, default=None, help="override reviewer_timeout_sec for this run")
+    ap.add_argument("--allow-free", action="store_true", help="include free-tier reviewers")
+    ap.add_argument("--allow-logging", action="store_true", help="include reviewers with privacy: LOGS")
     args = ap.parse_args()
     return asyncio.run(_main_async(args))
 

@@ -11,12 +11,7 @@ import os
 import sys
 
 
-NAME_HINTS = {
-    "claude": ["claude"],
-    "codex":  ["codex"],
-    "gemini": ["gemini"],
-    "opencode": ["opencode"],
-}
+HOSTS = ("claude", "codex", "gemini", "opencode")
 
 
 def detect() -> tuple[str, list[str]]:
@@ -30,8 +25,13 @@ def detect() -> tuple[str, list[str]]:
     if "CLAUDE_CODE_SESSION" in env or "CLAUDE_CODE_SIMPLE" in env:
         signals.append("env:CLAUDE_CODE_*")
         return "claude", signals
-    if any(k.startswith("CODEX_") for k in env):
-        signals.append("env:CODEX_*")
+    # Specific session markers only — a prefix scan would misfire on user
+    # credentials like CODEX_API_KEY exported in a shell profile.
+    codex_markers = ("CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED",
+                     "CODEX_THREAD_ID", "CODEX_SESSION_ID")
+    codex_hit = next((k for k in codex_markers if k in env), None)
+    if codex_hit:
+        signals.append(f"env:{codex_hit}")
         return "codex", signals
     if env.get("GEMINI_CLI") == "1" or "GEMINI_CLI_SESSION" in env:
         signals.append("env:GEMINI_CLI")
@@ -46,12 +46,16 @@ def detect() -> tuple[str, list[str]]:
         p = psutil.Process(os.getppid())
         for _ in range(8):
             name = (p.name() or "").lower()
-            cmdline = " ".join(p.cmdline()).lower() if p.cmdline() else ""
-            for host, hints in NAME_HINTS.items():
-                for h in hints:
-                    if h in name or h in cmdline:
-                        signals.append(f"proc:{name or cmdline}")
-                        return host, signals
+            # Match the executable and its script (argv[0]/argv[1] basenames,
+            # covering `node /path/gemini.js`), never the full cmdline —
+            # arguments like `--roster codex` in a wrapping shell must not
+            # read as a codex host.
+            cmdline = p.cmdline() or []
+            heads = " ".join(os.path.basename(a).lower() for a in cmdline[:2])
+            for host in HOSTS:
+                if host in name or host in heads:
+                    signals.append(f"proc:{name or heads}")
+                    return host, signals
             parent = p.parent()
             if parent is None:
                 break

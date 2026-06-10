@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import os
 import re
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -28,19 +30,27 @@ HISTORY_DB = ARGUS_HOME / "history.db"
 SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
+@functools.lru_cache(maxsize=8)
 def load_config(path: Path | None = None) -> dict:
+    """Parse config.yaml once per process. Returns a shared cached dict —
+    treat it as read-only (every adapter call goes through here)."""
     p = path or CONFIG_PATH
     with open(p, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
+@functools.lru_cache(maxsize=16)
+def _read_text_cached(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
 def build_prompt(diff: str, overlay: str | None = None) -> str:
-    tpl = PROMPT_PATH.read_text(encoding="utf-8")
+    tpl = _read_text_cached(PROMPT_PATH)
     overlay_text = ""
     if overlay:
         overlay_path = OVERLAYS_DIR / f"{overlay}.md"
         if overlay_path.exists():
-            overlay_text = overlay_path.read_text(encoding="utf-8")
+            overlay_text = _read_text_cached(overlay_path)
     # Escape ``` in the diff so it cannot terminate the outer fence early.
     # Use a zero-width joiner between backticks; reviewers see visually-identical
     # content while the fence stays intact.
@@ -97,15 +107,55 @@ def extract_json(text: str) -> dict | None:
                 continue
             start_range = [text.rfind("{", 0, idx)]
         else:
-            # Try every `{` from largest block first
-            start_range = [i for i, c in enumerate(text) if c == "{"]
+            # Last resort: one O(n) string-aware pass collecting every balanced
+            # {...} span via a stack, then bounded parse attempts in document
+            # order. (The old per-'{' rescan was O(n²) — minutes of CPU on
+            # brace-heavy non-JSON reviewer output.)
+            spans: list[tuple[int, int]] = []
+            stack: list[int] = []
+            in_str = esc = False
+            for i, c in enumerate(text):
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif c == "\\":
+                        esc = True
+                    elif c == '"':
+                        in_str = False
+                    continue
+                if c == '"':
+                    in_str = True
+                elif c == "{":
+                    stack.append(i)
+                elif c == "}" and stack:
+                    spans.append((stack.pop(), i))
+            spans.sort()
+            for start, end in spans[:50]:
+                try:
+                    return json.loads(text[start : end + 1])
+                except Exception:
+                    continue
+            return None
         for start in start_range:
             if start < 0:
                 continue
             depth = 0
+            in_str = False
+            esc = False
             for i in range(start, len(text)):
                 c = text[i]
-                if c == "{":
+                if in_str:
+                    # Braces inside string values must not move the depth counter.
+                    if esc:
+                        esc = False
+                    elif c == "\\":
+                        esc = True
+                    elif c == '"':
+                        in_str = False
+                    continue
+                if c == '"':
+                    in_str = True
+                elif c == "{":
                     depth += 1
                 elif c == "}":
                     depth -= 1
@@ -115,7 +165,6 @@ def extract_json(text: str) -> dict | None:
                             return json.loads(chunk)
                         except Exception:
                             break
-                        break
     return None
 
 
@@ -127,10 +176,13 @@ def normalize_findings(raw: Any) -> list[dict]:
         if not isinstance(f, dict):
             continue
         try:
+            sev = str(f.get("severity", "medium")).lower().strip()
+            if sev not in SEVERITY_RANK:
+                sev = "medium"
             out.append({
                 "file": str(f.get("file", "")).strip(),
                 "line": int(f.get("line", 0) or 0),
-                "severity": str(f.get("severity", "medium")).lower().strip(),
+                "severity": sev,
                 "category": str(f.get("category", "bug")).lower().strip(),
                 "description": str(f.get("description", "")).strip(),
                 "confidence": max(0, min(100, int(f.get("confidence", 50) or 50))),
@@ -140,6 +192,12 @@ def normalize_findings(raw: Any) -> list[dict]:
     return out
 
 
+@functools.lru_cache(maxsize=32)
+def _which_cached(name: str) -> str | None:
+    import shutil
+    return shutil.which(name)
+
+
 def _resolve_cmd(cmd: list[str]) -> list[str]:
     """On Windows, npm-installed shims are `.cmd` files that bash finds via PATH
     but Python's subprocess (with shell=False) does not. Use shutil.which to
@@ -147,46 +205,76 @@ def _resolve_cmd(cmd: list[str]) -> list[str]:
     """
     if not cmd:
         return cmd
-    import shutil
-    resolved = shutil.which(cmd[0])
+    resolved = _which_cached(cmd[0])
     if resolved:
         return [resolved] + cmd[1:]
     return cmd
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill the process AND its children. npm .cmd shims spawn a node grandchild
+    that survives a plain proc.kill(), holds the captured pipes, and hangs the
+    run — the bug that got the gemini reviewer disabled."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, check=False)
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 async def run_subprocess(cmd: list[str], stdin_data: str, timeout: int,
                          env: dict | None = None, cwd: str | None = None) -> tuple[int, str, str, float]:
     """Run a subprocess with stdin + timeout. Returns (rc, stdout, stderr, elapsed_sec).
 
-    Uses subprocess.run inside a thread for simplicity and Windows compatibility.
-    Resolves argv[0] via shutil.which so npm/.cmd shims work.
+    Runs in a thread for simplicity and Windows compatibility. Resolves argv[0]
+    via shutil.which so npm/.cmd shims work. On timeout the whole process TREE
+    is killed (POSIX: own session + killpg; Windows: taskkill /T /F).
     """
     resolved_cmd = _resolve_cmd(cmd)
 
     def _runit() -> tuple[int, str, str, float]:
         t0 = time.monotonic()
+        popen_kwargs: dict = {}
+        if os.name != "nt":
+            popen_kwargs["start_new_session"] = True
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 resolved_cmd,
-                input=stdin_data.encode("utf-8"),
-                capture_output=True,
-                timeout=timeout,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 env=env,
                 cwd=cwd,
-                check=False,
                 shell=False,
+                **popen_kwargs,
             )
-            return (
-                result.returncode,
-                result.stdout.decode("utf-8", errors="replace"),
-                result.stderr.decode("utf-8", errors="replace"),
-                time.monotonic() - t0,
-            )
-        except subprocess.TimeoutExpired:
-            return 124, "", "timeout", time.monotonic() - t0
         except FileNotFoundError as e:
             return 127, "", f"command not found: {e}", time.monotonic() - t0
         except Exception as e:
+            return 1, "", f"launch error: {type(e).__name__}: {e}", time.monotonic() - t0
+        try:
+            out, err = proc.communicate(input=stdin_data.encode("utf-8"), timeout=timeout)
+            return (
+                proc.returncode,
+                out.decode("utf-8", errors="replace"),
+                err.decode("utf-8", errors="replace"),
+                time.monotonic() - t0,
+            )
+        except subprocess.TimeoutExpired:
+            _kill_tree(proc)
+            try:
+                proc.communicate(timeout=5)
+            except Exception:
+                pass
+            return 124, "", "timeout (process tree killed)", time.monotonic() - t0
+        except Exception as e:
+            _kill_tree(proc)
             return 1, "", f"launch error: {type(e).__name__}: {e}", time.monotonic() - t0
 
     return await asyncio.to_thread(_runit)
@@ -194,8 +282,16 @@ async def run_subprocess(cmd: list[str], stdin_data: str, timeout: int,
 
 def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
                    allow_free: bool = False, allow_logging: bool = False,
-                   explicit_custom_only: set[str] | None = None) -> tuple[list[str], list[tuple[str, str]]]:
-    """Return (final_roster, drop_reasons)."""
+                   explicit_custom_only: set[str] | None = None,
+                   explicit: bool = False) -> tuple[list[str], list[tuple[str, str]]]:
+    """Return (final_roster, drop_reasons).
+
+    explicit=True means the caller passed these exact names by hand
+    (dispatch/benchmark --roster): disabled and custom_only gates are waived
+    (explicit naming = intent) and host_rules `add` does not inject reviewers
+    the caller never asked for. host_rules `skip` and the tier/privacy gates
+    still apply — they guard external consequences, not reviewer health.
+    """
     explicit_custom_only = explicit_custom_only or set()
     reviewers = cfg["reviewers"]
     profiles = cfg["profiles"]
@@ -209,19 +305,24 @@ def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
         base = list(profiles[cfg["defaults"]["profile"]]["members"])
 
     # Host adaptation
-    base = [n for n in base if n not in set(host_rules.get("skip", []))]
-    for n in host_rules.get("add", []):
-        if n not in base:
-            base.append(n)
-
+    skipped_by_host = set(host_rules.get("skip", []))
     drops: list[tuple[str, str]] = []
+    for n in base:
+        if n in skipped_by_host:
+            drops.append((n, f"host rule (running inside {host})"))
+    base = [n for n in base if n not in skipped_by_host]
+    if not explicit:
+        for n in host_rules.get("add", []):
+            if n not in base:
+                base.append(n)
+
     final = []
     for n in base:
         spec = reviewers.get(n)
         if not spec:
             drops.append((n, "not in registry"))
             continue
-        if spec.get("disabled"):
+        if spec.get("disabled") and not explicit:
             drops.append((n, "disabled in config"))
             continue
         if spec.get("tier") == "free" and not allow_free:
@@ -230,7 +331,7 @@ def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
         if spec.get("privacy") == "LOGS" and not allow_logging:
             drops.append((n, "logs prompts (use --allow-logging)"))
             continue
-        if spec.get("custom_only") and n not in explicit_custom_only:
+        if spec.get("custom_only") and not explicit and n not in explicit_custom_only:
             drops.append((n, "custom-only (name via --custom/--models)"))
             continue
         final.append(n)
