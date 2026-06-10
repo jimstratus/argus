@@ -147,10 +147,15 @@ async def _main_async(args) -> int:
     results = []
     for n, r in zip(roster, gathered):
         if isinstance(r, BaseException):
-            results.append({"name": n, "findings": [], "exit_code": 1,
-                            "error": f"{type(r).__name__}: {r}"})
-        else:
-            results.append(r)
+            r = {"name": n, "findings": [], "exit_code": 1,
+                 "error": f"{type(r).__name__}: {r}"}
+            # Keep the contract that every roster entry produces a
+            # reviews/<name>.json — merge.py only reads those files.
+            try:
+                (reviews_dir / f"{n}.json").write_text(json.dumps(r, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+        results.append(r)
 
     summary = {
         "roster": roster,
