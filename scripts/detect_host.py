@@ -11,12 +11,7 @@ import os
 import sys
 
 
-NAME_HINTS = {
-    "claude": ["claude"],
-    "codex":  ["codex"],
-    "gemini": ["gemini"],
-    "opencode": ["opencode"],
-}
+HOSTS = ("claude", "codex", "gemini", "opencode")
 
 
 def detect() -> tuple[str, list[str]]:
@@ -51,12 +46,16 @@ def detect() -> tuple[str, list[str]]:
         p = psutil.Process(os.getppid())
         for _ in range(8):
             name = (p.name() or "").lower()
-            cmdline = " ".join(p.cmdline()).lower() if p.cmdline() else ""
-            for host, hints in NAME_HINTS.items():
-                for h in hints:
-                    if h in name or h in cmdline:
-                        signals.append(f"proc:{name or cmdline}")
-                        return host, signals
+            # Match the executable and its script (argv[0]/argv[1] basenames,
+            # covering `node /path/gemini.js`), never the full cmdline —
+            # arguments like `--roster codex` in a wrapping shell must not
+            # read as a codex host.
+            cmdline = p.cmdline() or []
+            heads = " ".join(os.path.basename(a).lower() for a in cmdline[:2])
+            for host in HOSTS:
+                if host in name or host in heads:
+                    signals.append(f"proc:{name or heads}")
+                    return host, signals
             parent = p.parent()
             if parent is None:
                 break
