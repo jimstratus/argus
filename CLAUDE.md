@@ -37,11 +37,11 @@ argus/
 │   └── adapters/
 │       ├── __init__.py        # ROUTE_ADAPTERS registry
 │       ├── aichat.py          # universal aichat wrapper (all 8 provider routes)
-│       ├── gemini_cli.py      # gemini --yolo -p "<prompt>"
+│       ├── gemini_cli.py      # gemini --yolo -p ""  (prompt via stdin)
 │       ├── codex_cli.py       # codex exec --skip-git-repo-check -  (stdin)
 │       ├── claude_cli.py      # claude -p --output-format text --bare  (stdin, nested-from-claude blocked)
 │       ├── opencode_cli.py    # opencode run -  (stdin)
-│       └── copilot_cli.py     # copilot -p "<prompt>" --model X --allow-all-tools
+│       └── copilot_cli.py     # copilot -p "<stdin ptr>" --model X  (prompt via stdin)
 ├── fixtures/                  # benchmark inputs (diff.patch + ground-truth.json pairs)
 │   ├── sql-injection/
 │   ├── race-refund/
@@ -143,7 +143,10 @@ the full policy (disabled, tier, privacy, custom_only, host add).
 ### JSON extraction
 `_common.extract_json` handles: raw JSON, `<think>` reasoning blocks
 (Qwen3 / DeepSeek-R1 style), fenced code blocks, and embedded objects by
-"findings" or "ok" key. Every aichat reviewer we tested returns usable JSON.
+"findings" or "ok" key. The balanced-brace scanners track string/escape
+state (braces inside descriptions are safe) and the last-resort fallback is
+a single O(n) pass capped at 50 parse attempts. Every aichat reviewer we
+tested returns usable JSON.
 
 ## Benchmark run protocol (learned from first full bench)
 
@@ -184,7 +187,7 @@ the full policy (disabled, tier, privacy, custom_only, host add).
 | Kimi `KIMI_API_KEY` is consumer-only | forced OR primary (`moonshotai/kimi-k2.5`) | need Moonshot Platform dev key for k2.6-preview |
 | Nous Hermes direct → `NOUSRESEARCH_API_KEY` not in env | OR fallback works | set env var if wanted |
 | Gemini CLI disabled (timeout hang) | run_subprocess now tree-kills on timeout | re-test on Windows, then re-enable in config |
-| OpenCode CLI slow (42+s/call) | works, barely fits 45s verify timeout | set longer timeout in dispatch (already 180s) |
+| OpenCode CLI slow (42+s/call) | works, barely fits 45s verify timeout | dispatch timeout already 360s |
 | Fixtures only cover 4 scenarios | leaderboard is noisy at N=4 | author more fixtures (auth bypass, XSS, null-deref, async races, TOCTOU, etc.) |
 
 ## Reviewer recommendations (initial, pre-benchmark)

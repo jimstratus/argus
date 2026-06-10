@@ -24,11 +24,20 @@ New fixtures are valuable — they sharpen the benchmark signal.
 - Include `scripts/verify.py --json --roster <name>` output for reachability issues
 - Report `aichat --version`, Python version, OS
 
+## Tests
+
+- `python -m pytest tests/ -q` must pass — CI runs it on every push/PR.
+  Tests need no network or API keys.
+- Bug fixes in `_common.py` (extract_json, run_subprocess, merge scoring)
+  should come with a regression test alongside the existing ones in `tests/`.
+
 ## Code style
 
 - Python 3.12+. Type hints where they clarify; not exhaustive.
 - No new dependencies without justification. pyyaml + psutil is the current bar.
 - Shell scripts must work on both Git Bash (Windows) and POSIX.
+- Roster policy lives only in `_common.resolve_roster` — don't add inline
+  roster filters to individual scripts.
 
 ## Don't break
 
