@@ -30,8 +30,13 @@ def detect() -> tuple[str, list[str]]:
     if "CLAUDE_CODE_SESSION" in env or "CLAUDE_CODE_SIMPLE" in env:
         signals.append("env:CLAUDE_CODE_*")
         return "claude", signals
-    if any(k.startswith("CODEX_") for k in env):
-        signals.append("env:CODEX_*")
+    # Specific session markers only — a prefix scan would misfire on user
+    # credentials like CODEX_API_KEY exported in a shell profile.
+    codex_markers = ("CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED",
+                     "CODEX_THREAD_ID", "CODEX_SESSION_ID")
+    codex_hit = next((k for k in codex_markers if k in env), None)
+    if codex_hit:
+        signals.append(f"env:{codex_hit}")
         return "codex", signals
     if env.get("GEMINI_CLI") == "1" or "GEMINI_CLI_SESSION" in env:
         signals.append("env:GEMINI_CLI")

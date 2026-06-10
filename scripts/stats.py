@@ -31,8 +31,11 @@ def main() -> int:
     where = ""
     params: list = []
     if args.since:
-        where = "WHERE ts >= ?"
-        params = [args.since]
+        # runs.ts is dashed ISO-8601 ('2026-06-10T12:00:00+00:00') while
+        # benchmarks.ts is compact ('20260610T120000'); strip '-' and ':' from
+        # both sides so the lexical compare is valid for either format.
+        where = "WHERE REPLACE(REPLACE(ts, '-', ''), ':', '') >= ?"
+        params = [args.since.replace("-", "").replace(":", "")]
 
     # Per-reviewer aggregates from reviewer_runs
     cur.execute(f"""
