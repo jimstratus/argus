@@ -103,9 +103,22 @@ def extract_json(text: str) -> dict | None:
             if start < 0:
                 continue
             depth = 0
+            in_str = False
+            esc = False
             for i in range(start, len(text)):
                 c = text[i]
-                if c == "{":
+                if in_str:
+                    # Braces inside string values must not move the depth counter.
+                    if esc:
+                        esc = False
+                    elif c == "\\":
+                        esc = True
+                    elif c == '"':
+                        in_str = False
+                    continue
+                if c == '"':
+                    in_str = True
+                elif c == "{":
                     depth += 1
                 elif c == "}":
                     depth -= 1
@@ -115,7 +128,6 @@ def extract_json(text: str) -> dict | None:
                             return json.loads(chunk)
                         except Exception:
                             break
-                        break
     return None
 
 
@@ -127,10 +139,13 @@ def normalize_findings(raw: Any) -> list[dict]:
         if not isinstance(f, dict):
             continue
         try:
+            sev = str(f.get("severity", "medium")).lower().strip()
+            if sev not in SEVERITY_RANK:
+                sev = "medium"
             out.append({
                 "file": str(f.get("file", "")).strip(),
                 "line": int(f.get("line", 0) or 0),
-                "severity": str(f.get("severity", "medium")).lower().strip(),
+                "severity": sev,
                 "category": str(f.get("category", "bug")).lower().strip(),
                 "description": str(f.get("description", "")).strip(),
                 "confidence": max(0, min(100, int(f.get("confidence", 50) or 50))),
