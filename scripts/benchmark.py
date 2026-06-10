@@ -186,7 +186,13 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
             except Exception as e:
                 await _log_progress(f"{name:<16} {fx['name']:<18} run {idx+1}/{runs}  EXCEPTION: {type(e).__name__}: {str(e)[:80]}")
                 d = {"findings": [], "latency_sec": 0.0, "exit_code": 1, "error": f"{type(e).__name__}: {e}"}
-            scored = _score(d["findings"], fx["ground_truth"])
+            if d.get("exit_code", 1) != 0:
+                # A failed call is not "correctly found nothing" — zero-score it
+                # so broken reviewers can't earn F1=1.0 on clean-baseline.
+                scored = {"tp": 0, "fp": 0, "fn": len(fx["ground_truth"].get("issues", [])),
+                          "precision": 0.0, "recall": 0.0, "f1": 0.0}
+            else:
+                scored = _score(d["findings"], fx["ground_truth"])
             run_data.append({
                 "run_idx": idx,
                 "n_findings": len(d["findings"]),
@@ -402,8 +408,19 @@ async def _main_async(args) -> int:
     else:
         roster = list(cfg["profiles"]["panel"]["members"])
 
-    # Filter out reviewers not in registry
-    roster = [n for n in roster if n in cfg["reviewers"]]
+    # Filter out reviewers not in registry; drop disabled ones unless the user
+    # named them explicitly via --roster (explicit naming = intent to test).
+    explicit = bool(args.roster)
+    kept = []
+    for n in roster:
+        if n not in cfg["reviewers"]:
+            print(f"skip {n}: not in registry", file=sys.stderr)
+            continue
+        if cfg["reviewers"][n].get("disabled") and not explicit:
+            print(f"skip {n}: disabled in config (name via --roster to force)", file=sys.stderr)
+            continue
+        kept.append(n)
+    roster = kept
 
     total_calls = len(roster) * len(fixtures) * args.runs
     print(f"Benchmarking {len(roster)} reviewers × {len(fixtures)} fixtures × {args.runs} runs = {total_calls} calls", file=sys.stderr)
