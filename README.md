@@ -50,6 +50,30 @@ Argus has two dispatch modes; the calling agent picks one per run:
   `dispatch.py --roster a,b,c,d` once. Argus's internal
   `defaults.max_parallel: 4` (config.yaml) still applies.
 
+```mermaid
+sequenceDiagram
+    participant Agent as calling agent
+    participant S1 as subagent 1..4 (wave)
+    participant D as dispatch.py
+    participant R as reviewer CLI / API
+    participant M as merge.py
+    Agent->>Agent: resolve roster + estimate cost
+    par one subagent per reviewer (max 4)
+        Agent->>S1: dispatch reviewer N
+        S1->>D: dispatch.py --roster NAME --run-dir RUN_DIR
+        D->>D: resolve_roster (policy + host rules)
+        D->>R: prompt via stdin
+        R-->>D: JSON findings
+        D->>D: write reviews/NAME.json
+        D-->>S1: dispatch_summary.json
+    end
+    Agent->>M: merge.py --run-dir RUN_DIR (exactly once)
+    M-->>Agent: merged.md + metrics.json + history.db row
+```
+
+Every roster entry produces a `reviews/<name>.json` — timeouts, crashes, and
+parse failures included — so `merge.py` always sees the full picture.
+
 See [`SKILL.md` step 6](SKILL.md) for the canonical execution recipe.
 
 ## Why
@@ -70,9 +94,9 @@ flowchart LR
     B --> C["roster resolution"]
     C --> D{"host detection"}
     D -->|claude| E1["skip claude"]
-    D -->|codex| E2["skip codex, add claude"]
-    D -->|gemini| E3["skip gemini, add claude"]
-    D -->|opencode| E4["skip opencode, add claude"]
+    D -->|codex| E2["skip codex (+claude for profiles)"]
+    D -->|gemini| E3["skip gemini (+claude for profiles)"]
+    D -->|opencode| E4["skip opencode (+claude for profiles)"]
     D -->|unknown| E5["no change"]
     E1 --> F
     E2 --> F
@@ -109,12 +133,12 @@ flowchart LR
 | `grok-4.20` | aichat → OR `x-ai/grok-4.20` | 2M ctx, pricey |
 | `deepseek-v3.2` | aichat → OR `deepseek/deepseek-v3.2` | cheap + fast |
 | `gemini-or` | aichat → OR `google/gemini-2.5-flash` | 2s/call, best value |
-| `gemini` | `gemini` CLI (paid sub) | disabled on Windows (.cmd tree-kill issue) |
+| `gemini` | `gemini` CLI (paid sub) | disabled pending Windows re-test of the tree-kill fix |
 | `codex` | `codex` CLI (paid sub) | GPT-5.x, thorough, slow |
-| `claude` | `claude` CLI (paid sub) | auto-added when host ≠ claude |
+| `claude` | `claude` CLI (paid sub) | auto-added to **profile** rosters when host ≠ claude |
 | `opencode` | `opencode` CLI (paid sub) | top performer, slow cold start |
 | `hermes-4.3` | aichat → Nous (fallback OR) | custom-only |
-| `copilot-gpt5` | GitHub `copilot` CLI | **disabled** — harness returns prose not JSON |
+| `copilot-gpt5` | GitHub `copilot` CLI | **disabled** — returned prose under the old prompt-as-arg invocation; re-test with the new stdin invocation |
 
 ## Profiles
 
@@ -148,7 +172,21 @@ flowchart LR
 | 10 | `hermes-4.3` | 0.551 | 0.646 | 0.653 | 13 |
 | 11 | `kimi-k2.6` | 0.505 | 0.729 | 0.575 | 83 |
 
-Your numbers will differ. Run `--benchmark` on your fixtures.
+```mermaid
+xychart-beta
+    title "F1 by reviewer (4 fixtures x 3 runs)"
+    x-axis ["opencode", "qwen-3.6", "glm-5.1", "gemini-or", "minimax", "mimo-v2", "codex", "deepseek", "grok-4.20", "hermes", "kimi-k2.6"]
+    y-axis "F1" 0 --> 1
+    bar [0.811, 0.761, 0.697, 0.681, 0.674, 0.652, 0.581, 0.572, 0.557, 0.551, 0.505]
+```
+
+Speed is a separate axis — `gemini-or` and `grok-4.20` answer in ~2s while
+`kimi-k2.6` takes ~83s for a *lower* F1; cost/latency/quality trade-offs are
+yours to pick per profile.
+
+Your numbers will differ. Run `--benchmark` on your fixtures. Failed or
+unparseable reviewer calls are zero-scored — a broken reviewer can't climb
+the board by "finding nothing" on the clean-baseline control.
 
 ---
 
@@ -246,11 +284,12 @@ python scripts/merge.py --run-dir "$RUN_DIR"
 | `--custom LIST` / `--models LIST` | one-off roster |
 | `--pr URL` / `--files GLOB` / `-` | diff source |
 | `--overlay {security,deep,audit}` | prompt overlay |
-| `--timeout N` | override 180s per-reviewer timeout |
-| `--yes-cost` / `ARGUS_YES_COST=1` | bypass cost + OR balance blocks |
+| `--timeout N` | override the 360s per-reviewer timeout (`defaults.reviewer_timeout_sec`) |
+| `--yes-cost` / `ARGUS_YES_COST=1` | downgrade a cost block to a warning |
 | `--skip-balance-check` | skip OR balance pre-flight |
 | `--allow-free` | include free-tier reviewers |
 | `--allow-logging` | include reviewers that log prompts |
+| `--line-tolerance N` | merge clustering tolerance (`defaults.merge_line_tolerance`, default 3) |
 | `--output {md,json,gsd}` | output format (`gsd` → `REVIEW.md` for `gsd-code-review-fix`) |
 | `--save-as NAME` | persist `--custom` roster as profile |
 
@@ -288,6 +327,8 @@ flowchart TB
 
 **Why dual tolerance.** A single forward-walking check causes chain drift — findings at lines 10, 13, 16, 19 would all collapse into one cluster (each within ±3 of the previous) even though lines 10 and 19 are 9 apart. Anchor-check alone handles this, but can reject near-duplicates that happen to land just over the anchor tolerance. Both checks together: tight when cluster stays compact, rejects drift when it doesn't.
 
+The tolerance is configurable: `defaults.merge_line_tolerance` in config.yaml, or `--line-tolerance` per run. The reported line for a cluster is the **median** of its members; the worst severity in the cluster wins; descriptions from each reviewer are concatenated, highest confidence first.
+
 ---
 
 ## Cost control
@@ -298,19 +339,26 @@ Two independent gates, both enforceable:
 flowchart LR
     A["Roster + diff"] --> B["Estimate tokens x rates"]
     B --> C{"est >= threshold?<br>review: $0.50 / $2<br>bench: $10 / $30"}
-    C -->|at or above block| X1["BLOCK<br>override: --yes-cost"]
+    C -->|at or above block| X1["BLOCK exit 2<br>override: --yes-cost"]
     C -->|below block| D{"any OR reviewer<br>in roster?"}
     D -->|no| F["dispatch"]
     D -->|yes| E["probe OR balance<br>auth/key + credits"]
     E --> G{"available >=<br>safety x est?"}
-    G -->|no| X2["BLOCK<br>override: --yes-cost<br>or --skip-balance-check"]
+    G -->|"no (review mode)"| W["WARN exit 1<br>top up before dispatching"]
+    G -->|"no (benchmark mode)"| X2["BLOCK<br>override: --yes-cost"]
     G -->|yes| F
+    W --> F
     F --> Z["run"]
 
     style X1 fill:#ffb6c1,stroke:#c71585
     style X2 fill:#ffb6c1,stroke:#c71585
+    style W fill:#ffe4b5,stroke:#b8860b
     style Z fill:#98fb98,stroke:#2e8b57
 ```
+
+`estimate_cost.py` exit codes: `0` OK · `1` warn (soft threshold or low OR
+balance) · `2` block **or invalid roster** (unknown reviewer names fail fast —
+check stderr; `--yes-cost` overrides a cost block only).
 
 | Mode | Warn | Hard block | Override |
 |---|---|---|---|
@@ -332,7 +380,9 @@ Paid-CLI reviewers (Gemini, Codex, Claude, OpenCode, Copilot) incur no tracked c
 | opencode | `opencode` | `claude` |
 | unknown | — | — |
 
-Rule: never ask the host CLI to review its own invocation. Always ensure Claude is in the mix when Claude isn't the host. Detection via env vars + parent-process walk (psutil, up to 8 levels).
+Rule: never ask the host CLI to review its own invocation — the `skip` column always applies. The `add` column applies to **profile-based rosters only**: an explicit `--roster` list is treated as intent and never silently gains (or keeps `disabled:`/`custom_only:` blocks against) reviewers you named yourself. Anything dropped is recorded in `dispatch_summary.json` under `"dropped"`.
+
+Detection: specific env markers per host (e.g. `CLAUDECODE=1`; a stray `CODEX_API_KEY` in your shell profile won't trigger it), then a parent-process walk (psutil, up to 8 levels) matching executable names only — never full command lines.
 
 ---
 
@@ -364,7 +414,7 @@ Produces:
 - `benchmarks/<ts>.json` — full machine-readable data
 - rows in `history.db:benchmarks` — longitudinal comparison
 
-The aggregator re-scores from `tp/fp/fn` per run, correctly handles clean-baseline (P=R=F1=1.0 when reviewer correctly finds nothing), and produces the unified leaderboard.
+The aggregator re-scores from `tp/fp/fn` per run, correctly handles clean-baseline (P=R=F1=1.0 when a **successful** reviewer correctly finds nothing), zero-scores failed/timed-out/unparseable calls, and produces the unified leaderboard.
 
 ---
 
@@ -416,7 +466,7 @@ Seeded fixtures:
 
 ## Quality mechanics (summary)
 
-1. **Strict-schema JSON** — reviewers return `{findings: [{file, line, severity, category, description, confidence}]}`. Extractor tolerates fenced blocks, `<think>` prefixes, stray prose.
+1. **Strict-schema JSON** — reviewers return `{findings: [{file, line, severity, category, description, confidence}]}`. Extractor tolerates fenced blocks, `<think>` prefixes, stray prose, and braces inside string values; the last-resort scan is a single O(n) pass with bounded parse attempts, so garbage output can't stall a run. Off-enum severities are clamped to `medium` rather than dropped.
 2. **Context-window pre-check** — skip reviewer if prompt > 70% of their ctx (reviewer's `skip_reason` logged; other reviewers continue).
 3. **Confidence threshold** — drop findings with effective confidence < 80.
 4. **Anchor-based clustering + corroboration boost** — +15 confidence (cap 100) when ≥ 2 reviewers agree within ±3 lines on the same file.
@@ -424,6 +474,7 @@ Seeded fixtures:
 6. **OpenRouter reasoning-exclude** — `patch.chat_completions` applies `reasoning: {exclude: true, max_tokens: 2000}` + `provider: {ignore: [io.net, together.ai]}` to avoid providers that return `content: null` with reasoning-only.
 7. **Per-reviewer incremental writes** — in benchmark mode, reviewer JSONs land as each reviewer completes. Tailable during runs.
 8. **Fallback routing** — every reviewer has an optional fallback (typically OR); sum of primary + fallback latency is reported so you see real wall time.
+9. **Failure isolation** — one broken reviewer never kills the run: per-reviewer exception handling, `gather(return_exceptions=True)`, and a guaranteed `reviews/<name>.json` artifact for every roster entry. On timeout the entire subprocess tree is killed (`killpg` / `taskkill /T /F`) — no orphaned node processes.
 
 ---
 
@@ -468,6 +519,12 @@ argus/
 │   ├── race-refund/
 │   ├── secrets-leak/
 │   └── clean-baseline/
+├── tests/                      # unit tests (pytest; run in CI)
+│   ├── test_extract_json.py
+│   ├── test_merge.py
+│   ├── test_run_subprocess.py
+│   └── test_score.py
+├── .github/workflows/ci.yml    # GitHub Actions — pytest on push/PR
 ├── runs/                       # per-invocation artifacts (gitignored)
 ├── benchmarks/                 # leaderboard outputs (gitignored)
 └── history.db                  # SQLite — runs, findings, benchmarks (gitignored)
@@ -479,13 +536,13 @@ argus/
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  Windows .cmd shim tree-kill problem                                     │
+│  Windows .cmd shim tree-kill problem (FIXED — pending Windows re-test)   │
 │  ─────────────────────────────────────                                   │
-│  Node CLIs (gemini, copilot) don't tree-kill children on subprocess      │
-│  timeout. Causes zombie node.exe processes.                              │
+│  Node CLIs spawn a node child that used to survive subprocess timeout.   │
+│  run_subprocess now kills the whole process tree (killpg / taskkill /T). │
 │                                                                          │
-│  Mitigation: gemini-direct disabled by default; use gemini-or instead    │
-│  (same family via OpenRouter).                                           │
+│  gemini-direct stays disabled until re-tested on Windows; gemini-or      │
+│  (same family via OpenRouter) remains the default route.                 │
 ├──────────────────────────────────────────────────────────────────────────┤
 │  OpenRouter reasoning-provider trap                                      │
 │  ──────────────────────────────────                                      │
@@ -495,12 +552,12 @@ argus/
 │  Mitigation: aichat patch applies reasoning-exclude + provider-ignore.   │
 │  config.yaml: aichat_clients.openrouter.patch.chat_completions           │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  Argv length on Windows (~32KB)                                          │
+│  Argv length on Windows (~32KB) — FIXED                                  │
 │  ──────────────────────────────                                          │
-│  gemini-cli and copilot-cli embed the prompt as a command-line arg.      │
-│  Diffs > 30KB fail.                                                      │
+│  All CLI adapters now pipe the prompt via stdin; no adapter embeds it    │
+│  as a command-line arg anymore, so large diffs no longer hit ARG_MAX.    │
 │                                                                          │
-│  Mitigation: use --files to scope, or rely on aichat adapters (stdin).   │
+│  (Historical: gemini-cli fixed 2026-05-06, copilot-cli fixed 2026-06.)   │
 ├──────────────────────────────────────────────────────────────────────────┤
 │  Full-codebase audit prompt mismatch                                     │
 │  ───────────────────────────────────                                     │

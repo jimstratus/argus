@@ -69,14 +69,22 @@ Apply `host_rules[$HOST]` from config.yaml: remove `skip` list, append `add` lis
 
 1. Load config.yaml
 2. Base list from `--profile` / `--custom` / `--models` / default profile
-3. Apply host rules (step 2 above)
+3. Apply host rules (step 2 above). For explicitly-named rosters
+   (`--custom` / `--models`) apply only the `skip` list — never inject
+   `add` reviewers the user didn't ask for.
 4. Apply filters:
+   - drop reviewers with `disabled: true` unless explicitly named
    - drop reviewers with `tier: free` unless `--allow-free`
    - drop reviewers with `privacy: LOGS` unless `--allow-logging`
    - drop reviewers with `custom_only: true` unless explicitly named
 5. Dedupe
 
 If roster is empty, abort with message and list disabled reasons.
+
+Defense in depth: `dispatch.py` and `benchmark.py` enforce this same policy
+internally via `_common.resolve_roster` (drops recorded in
+`dispatch_summary.json` under `"dropped"`), and `estimate_cost.py` rejects
+unknown reviewer names — so a skipped filter here fails safe downstream.
 
 ## 4. Gather scope → diff
 
@@ -97,8 +105,10 @@ If diff is empty after filtering, abort.
 python "$ARGUS_HOME/scripts/estimate_cost.py" --roster "$ROSTER" --diff "$RUN_DIR/diff.patch"
 ```
 
-Exit codes: 0 OK, 1 WARN (≥ warn), 2 BLOCK (≥ block).
-On BLOCK without `--yes-cost`: stop. Report estimate to user.
+Exit codes: 0 OK, 1 WARN (≥ warn threshold or low OpenRouter balance),
+2 BLOCK (≥ block threshold) **or invalid roster** — check stderr to tell them
+apart; `--yes-cost` downgrades a cost BLOCK to WARN but cannot fix an invalid
+roster. On BLOCK without `--yes-cost`: stop. Report estimate to user.
 
 If `--dry-run`: stop here and print roster + estimate. Do not dispatch.
 
@@ -156,7 +166,8 @@ run `merge.py` exactly once in the main session (step 7).
 python "$ARGUS_HOME/scripts/merge.py" --run-dir "$RUN_DIR"
 ```
 
-Applies confidence threshold, corroboration boost, dedupes by file:line,
+Applies the confidence threshold, corroboration boost, and anchor-based
+±3-line clustering (`defaults.merge_line_tolerance` / `--line-tolerance`),
 writes `merged.md` and `metrics.json`. Also appends a row to `history.db`.
 
 ## 8. Present

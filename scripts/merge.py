@@ -10,7 +10,6 @@ import argparse
 import hashlib
 import json
 import sys
-import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,7 +27,7 @@ def _emit_cluster(file_path: str, cluster: list[dict], threshold: int, boost: in
     effective = min(100, max_conf + boost) if len(reviewers) >= 2 else max_conf
     if effective < threshold:
         return None
-    worst = max(cluster, key=lambda it: -SEVERITY_RANK.get(it.get("severity", "medium"), 3))
+    worst = min(cluster, key=lambda it: SEVERITY_RANK.get(it.get("severity", "medium"), 3))
     lines = sorted(int(it.get("line", 0) or 0) for it in cluster)
     anchor_line = lines[len(lines) // 2]  # median
     # Aggregate descriptions (cluster may merge independently-found issues)
@@ -204,7 +203,7 @@ def _to_gsd(result: dict, run_dir: Path) -> str:
     return "\n".join(lines)
 
 
-def _record_history(result: dict, run_dir: Path, cfg: dict) -> None:
+def _record_history(result: dict, run_dir: Path) -> None:
     """Append the run and its findings to history.db."""
     conn = None
     try:
@@ -268,12 +267,14 @@ def main() -> int:
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--threshold", type=int, default=None)
     ap.add_argument("--boost", type=int, default=None)
+    ap.add_argument("--line-tolerance", type=int, default=None)
     ap.add_argument("--output", default="md", choices=["md", "json", "gsd"])
     args = ap.parse_args()
 
     cfg = load_config()
     threshold = args.threshold if args.threshold is not None else cfg["defaults"]["confidence_threshold"]
     boost = args.boost if args.boost is not None else cfg["defaults"]["corroboration_boost"]
+    tolerance = args.line_tolerance if args.line_tolerance is not None else int(cfg["defaults"].get("merge_line_tolerance", 3))
 
     run_dir = Path(args.run_dir)
     reviews_dir = run_dir / "reviews"
@@ -282,7 +283,7 @@ def main() -> int:
         return 1
 
     reviewer_results = _load_reviewer_results(reviews_dir)
-    result = _merge(reviewer_results, threshold, boost)
+    result = _merge(reviewer_results, threshold, boost, line_tolerance=tolerance)
 
     # Always write metrics.json + merged.md; honor --output for stdout
     (run_dir / "metrics.json").write_text(
@@ -303,7 +304,7 @@ def main() -> int:
     else:
         print(md)
 
-    _record_history(result, run_dir, cfg)
+    _record_history(result, run_dir)
     return 0
 
 

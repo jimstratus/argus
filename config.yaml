@@ -23,6 +23,7 @@ defaults:
   allow_logging: false            # require --allow-logging to include privacy: LOGS
   confidence_threshold: 80        # drop findings with effective confidence < this
   corroboration_boost: 15         # confidence bonus when 2+ reviewers agree on same file:line
+  merge_line_tolerance: 3         # cluster findings within +/- this many lines (merge.py)
   ctx_safety_ratio: 0.70          # skip reviewer if prompt_tokens > ctx * this
   reviewer_timeout_sec: 360       # bumped from 180 on 2026-05-06 after a 4-doc
                                   # ~80K-token bundle had 5/7 reviewers timeout.
@@ -141,7 +142,7 @@ reviewers:
     ctx: 2000000
     tier: paid
     privacy: ok
-    disabled: true      # on hold — use gemini-or instead
+    disabled: true      # on hold — run_subprocess now tree-kills on timeout; re-test on Windows before re-enabling (use gemini-or meanwhile)
     cost_per_m: null
     primary:  { route: gemini-cli }
     fallback: { route: aichat, client: openrouter, model: "google/gemini-3.1-pro-preview" }
@@ -293,6 +294,6 @@ cli_commands:
   codex-cli:    ["codex", "exec", "--skip-git-repo-check", "-"]   # stdin input; skip git-repo trust check
   claude-cli:   ["claude", "-p", "--output-format", "text", "--bare"]   # stdin
   opencode-cli: ["opencode", "run", "-"]                     # stdin input
-  copilot-cli:  ["copilot", "-p", "{prompt}", "--model", "{model}",
-                 "--allow-all-tools", "--no-color",
-                 "--output-format", "text"]                  # prompt-as-arg (~30KB Windows arg limit)
+  copilot-cli:  ["copilot", "-p", "Follow the review instructions provided on stdin.",
+                 "--model", "{model}", "--allow-all-tools", "--no-color",
+                 "--output-format", "text"]                  # prompt via STDIN (Windows ARG_MAX; same fix as gemini-cli)

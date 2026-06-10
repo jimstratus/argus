@@ -1,9 +1,12 @@
 """GitHub Copilot CLI adapter.
 
 Copilot CLI uses GPT-family models (e.g., gpt-5.2) through the user's paid
-GitHub Copilot subscription. Invocation:
-    copilot -p "<prompt>" --model <model> --allow-all-tools \
-            --no-color --no-banner --output-format text
+GitHub Copilot subscription. The full prompt is piped via STDIN (combined by
+the CLI with the short -p pointer) — the previous {prompt}-in-argv approach
+breaks on Windows for prompts > ~32 KB (ARG_MAX limit), the same bug fixed
+for gemini-cli. Invocation:
+    copilot -p "<stdin pointer>" --model <model> --allow-all-tools \
+            --no-color --output-format text
 
 Value vs direct GPT routes:
   - Uses the user's Copilot paid sub (no API spend)
@@ -26,22 +29,14 @@ async def send(prompt: str, route_cfg: dict, timeout: int) -> dict:
     cfg = load_config()
     template = list(cfg["cli_commands"]["copilot-cli"])
     model = route_cfg.get("model", "")
-    cmd = []
-    for part in template:
-        if part == "{model}":
-            cmd.append(model)
-        elif part == "{prompt}":
-            cmd.append(prompt)
-        else:
-            cmd.append(part)
+    cmd = [model if part == "{model}" else part for part in template]
     env = os.environ.copy()
     env.setdefault("COPILOT_ALLOW_ALL", "1")
-    # Prompt already embedded as arg; no stdin needed
-    rc, stdout, stderr, dt = await run_subprocess(cmd, "", timeout, env=env)
+    rc, stdout, stderr, dt = await run_subprocess(cmd, prompt, timeout, env=env)
     return {
         "route": "copilot-cli",
         "model": model,
-        "cmd": cmd[:6] + ["...", "<prompt>"] if len(cmd) > 6 else cmd,
+        "cmd": cmd,
         "exit_code": rc,
         "stdout": stdout,
         "stderr": stderr,
