@@ -293,6 +293,6 @@ cli_commands:
   codex-cli:    ["codex", "exec", "--skip-git-repo-check", "-"]   # stdin input; skip git-repo trust check
   claude-cli:   ["claude", "-p", "--output-format", "text", "--bare"]   # stdin
   opencode-cli: ["opencode", "run", "-"]                     # stdin input
-  copilot-cli:  ["copilot", "-p", "{prompt}", "--model", "{model}",
-                 "--allow-all-tools", "--no-color",
-                 "--output-format", "text"]                  # prompt-as-arg (~30KB Windows arg limit)
+  copilot-cli:  ["copilot", "-p", "Follow the review instructions provided on stdin.",
+                 "--model", "{model}", "--allow-all-tools", "--no-color",
+                 "--output-format", "text"]                  # prompt via STDIN (Windows ARG_MAX; same fix as gemini-cli)
