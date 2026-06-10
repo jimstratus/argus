@@ -97,8 +97,10 @@ If diff is empty after filtering, abort.
 python "$ARGUS_HOME/scripts/estimate_cost.py" --roster "$ROSTER" --diff "$RUN_DIR/diff.patch"
 ```
 
-Exit codes: 0 OK, 1 WARN (≥ warn), 2 BLOCK (≥ block).
-On BLOCK without `--yes-cost`: stop. Report estimate to user.
+Exit codes: 0 OK, 1 WARN (≥ warn threshold or low OpenRouter balance),
+2 BLOCK (≥ block threshold) **or invalid roster** — check stderr to tell them
+apart; `--yes-cost` downgrades a cost BLOCK to WARN but cannot fix an invalid
+roster. On BLOCK without `--yes-cost`: stop. Report estimate to user.
 
 If `--dry-run`: stop here and print roster + estimate. Do not dispatch.
 

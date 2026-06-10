@@ -185,7 +185,7 @@ python scripts/estimate_cost.py --roster "glm-5.1,minimax-m2.7,gemini-or,codex" 
 
 ## Known Gotchas
 
-- **Windows .cmd shim tree-kill**: Node CLIs (gemini, copilot) don't tree-kill children on subprocess timeout. Use `gemini-or` instead.
+- **Windows .cmd shim tree-kill**: fixed — `run_subprocess` kills the whole process tree on timeout (killpg on POSIX, `taskkill /T /F` on Windows). gemini-direct stays disabled until re-tested on Windows; `gemini-or` remains the default route.
 - **OpenRouter reasoning providers**: `z-ai/glm-5.1` and `minimax/minimax-m2.7` may route to providers returning `{content: null}`. Mitigation: aichat patch applies reasoning-exclude + provider-ignore.
-- **Argv length on Windows (~32KB)**: gemini-cli and copilot-cli embed prompts as CLI args. Diffs >30KB fail. Use `--files` to scope.
+- **Argv length on Windows (~32KB)**: fixed — all CLI adapters pipe the prompt via stdin; no adapter embeds it in argv.
 - **Full-codebase audit prompt mismatch**: Default prompt optimized for PR review. Use `--overlay audit` for empty-tree→HEAD diffs.

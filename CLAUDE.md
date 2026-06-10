@@ -119,15 +119,21 @@ py -3.12 "$ARGUS_HOME/scripts/benchmark.py" --runs 3 --profile panel
 
 ### Host-CLI awareness
 `detect_host.py` inspects env + parent process tree. Returns one of
-`claude | codex | gemini | opencode | unknown`. `host_rules` in config.yaml
-removes the matching reviewer from the roster and (for non-claude hosts) adds
-`claude` in. **When running inside Claude Code, the `claude` reviewer is
-auto-skipped** — Claude's nested-invocation policy would block it anyway.
+`claude | codex | gemini | opencode | unknown`. `resolve_roster` (called by
+dispatch.py and benchmark.py) applies `host_rules` from config.yaml: the
+matching host's reviewer is always skipped (**inside Claude Code the `claude`
+reviewer is auto-skipped** — the nested-invocation policy would block it).
+`--roster` names are explicit: disabled/custom_only gates are waived and
+host_rules `add` does not inject extra reviewers; profile-based rosters get
+the full policy (disabled, tier, privacy, custom_only, host add).
 
 ### Confidence filter + corroboration
 - Drop findings with effective confidence < 80.
-- Bonus: +15 points when ≥2 reviewers flag the same `file:line` (capped at 100).
-- Merge dedupes by exact `file:line`. Nearby-line corroboration is NOT done today — reviewers often disagree on line numbers by ±3 within the same diff hunk; this under-counts corroboration. Candidate v2 fix: bucket by file + ±3-line range.
+- Bonus: +15 points when ≥2 reviewers flag the same issue (capped at 100).
+- Merge clusters findings by file + anchor-based ±3-line proximity
+  (`defaults.merge_line_tolerance`, `--line-tolerance`); the reported line is
+  the cluster median. Do NOT re-implement "±3 bucketing" — it already exists
+  in `merge.py:_merge`.
 
 ### Cost gates
 - Review: warn $0.50, hard block $2.00 — overridable with `--yes-cost`
@@ -163,9 +169,6 @@ auto-skipped** — Claude's nested-invocation policy would block it anyway.
   slow expensive frontier when F1 is comparable.
 
 ## v2 ideas (captured for later)
-- **Nearby-line corroboration in merge.** Currently bucket by exact
-  `file:line`; reviewers often differ by ±3 within the same hunk. Bucket
-  by file + ±3-line range to increase corroboration accuracy.
 - **User-action capture.** After merged.md is shown, collect accepted/rejected
   per finding into history.db. Use this for usage-driven preference weights.
 - **`--refresh` command.** Query OpenRouter `/models` and diff against pinned
@@ -180,9 +183,8 @@ auto-skipped** — Claude's nested-invocation policy would block it anyway.
 | MiniMax-M2.7 direct → works (slow, 20s for fixture) | — | — |
 | Kimi `KIMI_API_KEY` is consumer-only | forced OR primary (`moonshotai/kimi-k2.5`) | need Moonshot Platform dev key for k2.6-preview |
 | Nous Hermes direct → `NOUSRESEARCH_API_KEY` not in env | OR fallback works | set env var if wanted |
-| Gemini CLI slow (60-70s/call) | works, use sparingly for quick reviews | no fix — CLI startup time |
+| Gemini CLI disabled (timeout hang) | run_subprocess now tree-kills on timeout | re-test on Windows, then re-enable in config |
 | OpenCode CLI slow (42+s/call) | works, barely fits 45s verify timeout | set longer timeout in dispatch (already 180s) |
-| Merge doesn't apply line-tolerance to corroboration | under-counts corroborated findings | v2: ±3-line bucketing |
 | Fixtures only cover 4 scenarios | leaderboard is noisy at N=4 | author more fixtures (auth bypass, XSS, null-deref, async races, TOCTOU, etc.) |
 
 ## Reviewer recommendations (initial, pre-benchmark)

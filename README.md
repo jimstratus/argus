@@ -479,13 +479,13 @@ argus/
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  Windows .cmd shim tree-kill problem                                     │
+│  Windows .cmd shim tree-kill problem (FIXED — pending Windows re-test)   │
 │  ─────────────────────────────────────                                   │
-│  Node CLIs (gemini, copilot) don't tree-kill children on subprocess      │
-│  timeout. Causes zombie node.exe processes.                              │
+│  Node CLIs spawn a node child that used to survive subprocess timeout.   │
+│  run_subprocess now kills the whole process tree (killpg / taskkill /T). │
 │                                                                          │
-│  Mitigation: gemini-direct disabled by default; use gemini-or instead    │
-│  (same family via OpenRouter).                                           │
+│  gemini-direct stays disabled until re-tested on Windows; gemini-or      │
+│  (same family via OpenRouter) remains the default route.                 │
 ├──────────────────────────────────────────────────────────────────────────┤
 │  OpenRouter reasoning-provider trap                                      │
 │  ──────────────────────────────────                                      │
@@ -495,12 +495,12 @@ argus/
 │  Mitigation: aichat patch applies reasoning-exclude + provider-ignore.   │
 │  config.yaml: aichat_clients.openrouter.patch.chat_completions           │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  Argv length on Windows (~32KB)                                          │
+│  Argv length on Windows (~32KB) — FIXED                                  │
 │  ──────────────────────────────                                          │
-│  gemini-cli and copilot-cli embed the prompt as a command-line arg.      │
-│  Diffs > 30KB fail.                                                      │
+│  All CLI adapters now pipe the prompt via stdin; no adapter embeds it    │
+│  as a command-line arg anymore, so large diffs no longer hit ARG_MAX.    │
 │                                                                          │
-│  Mitigation: use --files to scope, or rely on aichat adapters (stdin).   │
+│  (Historical: gemini-cli fixed 2026-05-06, copilot-cli fixed 2026-06.)   │
 ├──────────────────────────────────────────────────────────────────────────┤
 │  Full-codebase audit prompt mismatch                                     │
 │  ───────────────────────────────────                                     │
