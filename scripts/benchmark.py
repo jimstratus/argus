@@ -17,19 +17,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import os
 import sys
 import time
-from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
     load_config, build_prompt, extract_json, normalize_findings,
-    ARGUS_HOME, history_conn,
+    ARGUS_HOME, history_conn, resolve_roster,
 )
+from detect_host import detect as detect_host
 import adapters
 
 
@@ -122,6 +121,8 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int) -> dict:
     if adapter is None:
         return {"findings": [], "latency_sec": 0.0, "primary_latency_sec": 0.0,
                 "fallback_latency_sec": 0.0, "fallback_used": False,
+                "exit_code": 1, "primary_exit_code": 1, "primary_error": "",
+                "parse_error": False,
                 "error": f"no adapter for {primary.get('route')}"}
     r = await adapter.send(prompt, primary, timeout)
     primary_latency = r.get("latency_sec", 0.0)
@@ -140,10 +141,13 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int) -> dict:
                 fallback_used = True
                 r = r2
     findings = []
+    parse_error = False
     if r["exit_code"] == 0:
         parsed = extract_json(r["stdout"])
         if isinstance(parsed, dict):
             findings = normalize_findings(parsed.get("findings", []))
+        else:
+            parse_error = True
     total_latency = primary_latency + fallback_latency
     return {
         "findings": findings,
@@ -154,6 +158,7 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int) -> dict:
         "exit_code": r["exit_code"],
         "primary_exit_code": primary_exit,
         "primary_error": primary_err,
+        "parse_error": parse_error,
         "error": (r.get("stderr") or "")[:200] if r["exit_code"] != 0 else None,
     }
 
@@ -166,7 +171,7 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
     wall_start = time.monotonic()
 
     for fx in fixtures:
-        prompt = build_prompt(fx["diff"])
+        prompt = fx["prompt"]
         run_data = []
         merged_keys: set[tuple[str, int]] = set()
         for idx in range(runs):
@@ -174,7 +179,7 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                 await _log_progress(f"{name:<16} WALL-CAP HIT at {int(time.monotonic()-wall_start)}s — skipping remaining runs")
                 run_data.append({
                     "run_idx": idx, "n_findings": 0, "latency_sec": 0.0,
-                    "exit_code": 137, "error": "wall-cap exceeded",
+                    "exit_code": 137, "parse_error": False, "error": "wall-cap exceeded",
                     "tp": 0, "fp": 0, "fn": len(fx["ground_truth"].get("issues", [])),
                     "precision": 0.0, "recall": 0.0, "f1": 0.0,
                 })
@@ -185,10 +190,11 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                     d = await _dispatch(name, spec, prompt, timeout)
             except Exception as e:
                 await _log_progress(f"{name:<16} {fx['name']:<18} run {idx+1}/{runs}  EXCEPTION: {type(e).__name__}: {str(e)[:80]}")
-                d = {"findings": [], "latency_sec": 0.0, "exit_code": 1, "error": f"{type(e).__name__}: {e}"}
-            if d.get("exit_code", 1) != 0:
-                # A failed call is not "correctly found nothing" — zero-score it
-                # so broken reviewers can't earn F1=1.0 on clean-baseline.
+                d = {"findings": [], "latency_sec": 0.0, "exit_code": 1,
+                     "parse_error": False, "error": f"{type(e).__name__}: {e}"}
+            if d.get("exit_code", 1) != 0 or d.get("parse_error"):
+                # A failed or unparseable call is not "correctly found nothing" —
+                # zero-score it so broken reviewers can't earn F1=1.0 on clean-baseline.
                 scored = {"tp": 0, "fp": 0, "fn": len(fx["ground_truth"].get("issues", [])),
                           "precision": 0.0, "recall": 0.0, "f1": 0.0}
             else:
@@ -197,8 +203,9 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                 "run_idx": idx,
                 "n_findings": len(d["findings"]),
                 "latency_sec": d["latency_sec"],
-                "exit_code": d["exit_code"],
-                "error": d["error"],
+                "exit_code": d.get("exit_code", 1),
+                "parse_error": d.get("parse_error", False),
+                "error": d.get("error"),
                 **scored,
             })
             for f in d["findings"]:
@@ -401,26 +408,24 @@ async def _main_async(args) -> int:
         sys.stderr.write("no fixtures found. Seed fixtures/ before running benchmark.\n")
         return 1
 
+    # Same policy engine as dispatch.py: --roster names are explicit (disabled/
+    # custom_only waived, no host_rules add); profiles get full policy.
+    host, _ = detect_host()
     if args.roster:
-        roster = [r.strip() for r in args.roster.split(",") if r.strip()]
-    elif args.profile:
-        roster = list(cfg["profiles"][args.profile]["members"])
+        names = [r.strip() for r in args.roster.split(",") if r.strip()]
+        roster, drops = resolve_roster(
+            cfg, "custom", names, host,
+            allow_free=args.allow_free, allow_logging=args.allow_logging,
+            explicit=True,
+        )
     else:
-        roster = list(cfg["profiles"]["panel"]["members"])
-
-    # Filter out reviewers not in registry; drop disabled ones unless the user
-    # named them explicitly via --roster (explicit naming = intent to test).
-    explicit = bool(args.roster)
-    kept = []
-    for n in roster:
-        if n not in cfg["reviewers"]:
-            print(f"skip {n}: not in registry", file=sys.stderr)
-            continue
-        if cfg["reviewers"][n].get("disabled") and not explicit:
-            print(f"skip {n}: disabled in config (name via --roster to force)", file=sys.stderr)
-            continue
-        kept.append(n)
-    roster = kept
+        profile = args.profile or "panel"
+        roster, drops = resolve_roster(
+            cfg, "profile", [profile], host,
+            allow_free=args.allow_free, allow_logging=args.allow_logging,
+        )
+    for n, reason in drops:
+        print(f"skip {n}: {reason}", file=sys.stderr)
 
     total_calls = len(roster) * len(fixtures) * args.runs
     print(f"Benchmarking {len(roster)} reviewers × {len(fixtures)} fixtures × {args.runs} runs = {total_calls} calls", file=sys.stderr)
@@ -487,7 +492,11 @@ async def _main_async(args) -> int:
     _PROGRESS_COUNTER["done"] = 0
     _PROGRESS_START = time.monotonic()
 
-    ts = args.benchmark_ts or time.strftime("%Y%m%dT%H%M%S")
+    # UTC so benchmarks.ts and runs.ts (also UTC) share one --since timeline.
+    ts = args.benchmark_ts or time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+    # Prompts are reviewer-independent — build each fixture's once.
+    for fx in fixtures:
+        fx["prompt"] = build_prompt(fx["diff"])
     sem = asyncio.Semaphore(max_parallel)
     tasks = [_bench_reviewer(n, cfg["reviewers"][n], fixtures, args.runs, timeout, sem,
                               ts=ts, max_wall_sec=args.max_wall_sec) for n in roster]
@@ -527,6 +536,8 @@ def main() -> int:
     ap.add_argument("--max-wall-sec", type=int, default=600, help="hard wall-time cap per reviewer (default 600s)")
     ap.add_argument("--yes-cost", action="store_true", help="bypass benchmark cost block + OR balance gate (env: ARGUS_YES_COST=1)")
     ap.add_argument("--skip-balance-check", action="store_true", help="skip the OpenRouter balance pre-flight")
+    ap.add_argument("--allow-free", action="store_true", help="include free-tier reviewers")
+    ap.add_argument("--allow-logging", action="store_true", help="include reviewers with privacy: LOGS")
     args = ap.parse_args()
     return asyncio.run(_main_async(args))
 

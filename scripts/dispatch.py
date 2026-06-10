@@ -94,13 +94,13 @@ async def _main_async(args) -> int:
 
     names = [r.strip() for r in args.roster.split(",") if r.strip()]
     host, _ = detect_host()
-    # Explicitly-named reviewers count as explicit_custom_only so custom_only
-    # entries stay usable; disabled/tier/privacy/host_rules policies still apply.
+    # --roster names are explicit: disabled/custom_only are waived and
+    # host_rules `add` is not applied; host `skip` and tier/privacy still hold.
     roster, drops = resolve_roster(
         cfg, "custom", names, host,
         allow_free=bool(args.allow_free or defaults.get("allow_free")),
         allow_logging=bool(args.allow_logging or defaults.get("allow_logging")),
-        explicit_custom_only=set(names),
+        explicit=True,
     )
     for n, reason in drops:
         sys.stderr.write(f"roster: dropped {n} — {reason}\n")
@@ -120,9 +120,8 @@ async def _main_async(args) -> int:
 
     async def _bounded(name: str) -> dict:
         async with sem:
-            spec = cfg["reviewers"].get(name)
-            if not spec:
-                return {"name": name, "error": "unknown reviewer"}
+            # resolve_roster guarantees roster ⊆ registry
+            spec = cfg["reviewers"][name]
 
             # Context-window pre-check
             ctx = int(spec.get("ctx", 0) or 0)
@@ -155,6 +154,7 @@ async def _main_async(args) -> int:
 
     summary = {
         "roster": roster,
+        "dropped": {n: reason for n, reason in drops},
         "prompt_tokens_est": prompt_tokens,
         "reviewers": {
             r["name"]: {

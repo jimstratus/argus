@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -43,7 +44,8 @@ def main() -> int:
     unknown = [n for n in roster if n not in cfg["reviewers"]]
     if unknown:
         sys.stderr.write(
-            f"ERROR: unknown reviewer(s): {', '.join(unknown)}. "
+            f"INVALID ROSTER (not a cost block — --yes-cost will not help): "
+            f"unknown reviewer(s): {', '.join(unknown)}. "
             f"Known: {', '.join(sorted(cfg['reviewers']))}\n"
         )
         return 2
@@ -106,11 +108,10 @@ def main() -> int:
             or (cfg["reviewers"].get(name, {}).get("fallback", {}).get("client") == "openrouter")
             for name in roster
         )
-        import os as _os
-        if uses_openrouter and _os.environ.get("OPENROUTER_API_KEY"):
+        if uses_openrouter and os.environ.get("OPENROUTER_API_KEY"):
             try:
                 from or_balance import probe
-                info = probe(_os.environ["OPENROUTER_API_KEY"])
+                info = probe(os.environ["OPENROUTER_API_KEY"])
                 available = info.get("available_usd")
                 safety = float(d.get("or_balance_safety_factor", 2.0))
                 if available is not None and available < total * safety:
