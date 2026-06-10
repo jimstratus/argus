@@ -20,7 +20,7 @@
 [![License: MIT](https://img.shields.io/github/license/jimstratus/argus?style=flat-square&color=blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
 [![aichat 0.30+](https://img.shields.io/badge/aichat-0.30%2B-8a2be2?style=flat-square)](https://github.com/sigoden/aichat)
-[![Reviewers: 14](https://img.shields.io/badge/reviewers-14-success?style=flat-square)](#roster)
+[![Reviewers: 15](https://img.shields.io/badge/reviewers-15-success?style=flat-square)](#roster)
 [![CI](https://img.shields.io/github/actions/workflow/status/jimstratus/argus/ci.yml?branch=master&style=flat-square&label=ci)](https://github.com/jimstratus/argus/actions)
 [![Last commit](https://img.shields.io/github/last-commit/jimstratus/argus?style=flat-square)](https://github.com/jimstratus/argus/commits)
 [![Stars](https://img.shields.io/github/stars/jimstratus/argus?style=flat-square)](https://github.com/jimstratus/argus/stargazers)
@@ -132,6 +132,7 @@ flowchart LR
 | `qwen-3.6-plus` | aichat → OR `qwen/qwen3.6-plus` | 1M ctx, conservative |
 | `grok-4.20` | aichat → OR `x-ai/grok-4.20` | 2M ctx, pricey |
 | `deepseek-v3.2` | aichat → OR `deepseek/deepseek-v3.2` | cheap + fast |
+| `deepseek-v4-pro` | aichat → OR `deepseek/deepseek-v4-pro` | 1.6T MoE, 1M ctx, reasoning + security |
 | `gemini-or` | aichat → OR `google/gemini-2.5-flash` | 2s/call, best value |
 | `gemini` | `gemini` CLI (paid sub) | disabled pending Windows re-test of the tree-kill fix |
 | `codex` | `codex` CLI (paid sub) | GPT-5.x, thorough, slow |
@@ -202,7 +203,7 @@ the board by "finding nothing" on the clean-baseline control.
 ├─ at least one CLI reviewer ──────────────────────────┤
 │  claude, codex, gemini, opencode, copilot            │
 ├─ at least one API key ───────────────────────────────┤
-│  OPENROUTER_API_KEY (covers 8 of 14 reviewers)       │
+│  OPENROUTER_API_KEY (covers 9 of 15 reviewers)       │
 │  ZAI_API_KEY, MINIMAX_API_KEY, KIMI_API_KEY          │
 │  GEMINI_API_KEY, OPENAI_API_KEY                      │
 │  NOUSRESEARCH_API_KEY (optional)                     │

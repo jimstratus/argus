@@ -121,8 +121,9 @@ recommended pattern** — single-process is the legacy / quick path.
 
 When more than one reviewer is in the roster, the calling agent should
 dispatch ONE subagent per reviewer via the parent platform's Agent /
-subagent API (Claude Code: Agent tool with `run_in_background: true`).
-Each subagent runs:
+subagent API (Claude Code: Agent tool with `run_in_background: true` on the
+**parent's** Agent call — so the parent fans out concurrent subagents
+without blocking). Each subagent runs:
 
 ```bash
 python "$ARGUS_HOME/scripts/dispatch.py" \
@@ -132,10 +133,61 @@ python "$ARGUS_HOME/scripts/dispatch.py" \
   [--overlay security|deep]
 ```
 
-**Concurrency cap: at most 4 subagents running in parallel.** If the roster
-has more than 4 reviewers, dispatch the first 4 in a wave, then queue the
-rest and dispatch as each completes. This matches `defaults.max_parallel: 4`
-in config.yaml and keeps per-reviewer visibility (independent timestamps,
+#### CRITICAL: subagent execution semantics
+
+The subagent MUST run `dispatch.py` **synchronously in its OWN session
+(foreground)** and wait for the process to exit before ending. If the
+subagent uses its own `run_in_background: true` to spawn `dispatch.py`,
+the subagent's session ends BEFORE `dispatch.py` completes, and
+`$RUN_DIR/reviews/<name>.json` is never written. The parent then sees a
+"completed" subagent with no result.
+
+This is observed when a subagent reports back with a plan ("I'll wait
+for the dispatch...") instead of actual results — that's the
+fingerprint of the bailout bug.
+
+**Always include explicit synchronous-execution wording in the subagent
+prompt.** A minimal safe template:
+
+```
+You are dispatching a SINGLE argus reviewer. Do not do any other work.
+
+Run this command IN THE FOREGROUND (synchronously) and WAIT for it to
+exit. Do NOT use run_in_background. This may take 30s–5min depending on
+the reviewer; that is expected — block your session until it returns.
+
+    python "$ARGUS_HOME/scripts/dispatch.py" \
+      --run-dir "<RUN_DIR>" \
+      --roster "<reviewer-name>" \
+      --diff   "<RUN_DIR>/diff.patch" \
+      [--overlay security|deep]
+
+After it exits, read `<RUN_DIR>/reviews/<reviewer-name>.json` and
+report back in under 100 words:
+
+- exit code from the dispatch command
+- latency_sec field from the JSON
+- count of findings (length of .findings array, 0 if missing)
+- skipped status + skip_reason if set
+- error field if present
+- fallback_used flag
+
+Do NOT run merge.py — the parent session handles that.
+Do NOT modify any files. Do NOT do any other work.
+```
+
+If a subagent's result-reporting indicates it never read the review
+JSON (or the file is missing on disk), re-dispatch that single reviewer
+either as a fresh subagent with stricter prompt wording, or directly
+in the parent session with `run_in_background: true` on the parent's
+Bash call (parent stays responsive while waiting for completion).
+
+#### Concurrency cap
+
+**At most 4 subagents running in parallel.** If the roster has more than
+4 reviewers, dispatch the first 4 in a wave, then queue the rest and
+dispatch as each completes. This matches `defaults.max_parallel: 4` in
+config.yaml and keeps per-reviewer visibility (independent timestamps,
 streaming progress, isolated failure modes).
 
 ### 6b. Legacy / quick path: single-process dispatch

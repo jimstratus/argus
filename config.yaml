@@ -120,6 +120,15 @@ reviewers:
     cost_per_m: { input: 0.27, output: 1.10 }
     primary:  { route: aichat, client: openrouter, model: "deepseek/deepseek-v3.2" }
 
+  deepseek-v4-pro:
+    display: "DeepSeek V4 Pro (1.6T MoE, 49B active, 1M ctx, released 2026-04-24)"
+    role: [reasoning, security, code, long-context]
+    ctx: 1048576
+    tier: paid
+    privacy: ok
+    cost_per_m: { input: 0.435, output: 0.87 }
+    primary:  { route: aichat, client: openrouter, model: "deepseek/deepseek-v4-pro" }
+
   # Custom-only — not included in any default profile. Available via --custom or --models.
   hermes-4.3:
     display: "Nous Hermes 4.3 36B"
