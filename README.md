@@ -162,14 +162,16 @@ OpenRouter route; which one is tried first is governed by
 
 ## Routing — OpenRouter vs direct API
 
-Three reviewers are **dual-route**: they have both a direct-provider API route
-and an OpenRouter route.
+Some reviewers are **dual-route**: they have both a direct-provider API route
+and an OpenRouter route. The three default-roster ones:
 
 | Reviewer | Direct API | OpenRouter |
 |---|---|---|
 | `glm-5.2` | z.ai (`ZAI_API_KEY`) | `z-ai/glm-5.2` |
 | `minimax-m3` | minimaxi.chat (`MINIMAX_API_KEY`) | `minimax/minimax-m3` |
 | `deepseek-v4-pro` | api.deepseek.com (`DEEPSEEK_API_KEY`) | `deepseek/deepseek-v4-pro` |
+
+(The custom-only `hermes-4.3` is dual-route too: Nous direct ↔ OpenRouter.)
 
 A single knob, `defaults.route_preference` in `config.yaml`, decides which one
 each dual-route reviewer tries **first** (the other becomes the automatic

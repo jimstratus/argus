@@ -380,12 +380,13 @@ def resolve_route_preference(cli_value: str | None = None,
 def resolve_routes(spec: dict, preference: str = "openrouter") -> tuple[dict | None, dict | None]:
     """Order a reviewer's two routes into (primary, fallback) by preference.
 
-    Reordering applies ONLY to reviewers whose two routes are exactly the
-    {direct-API, OpenRouter} pair (glm-5.2, minimax-m3, deepseek-v4-pro).
-    For those, `preference` ('openrouter' | 'direct') decides which is tried
-    first; the other becomes the fallback. Every other reviewer — single-route
-    reviewers and CLI reviewers that keep OpenRouter as a true fallback —
-    retains its declared primary/fallback order untouched.
+    Reordering applies to any reviewer whose two routes are exactly the
+    {direct-API, OpenRouter} pair — currently glm-5.2, minimax-m3,
+    deepseek-v4-pro, and (custom-only) hermes-4.3. For those, `preference`
+    ('openrouter' | 'direct') decides which is tried first; the other becomes
+    the fallback. Every other reviewer — single-route reviewers and CLI
+    reviewers that keep OpenRouter as a true fallback — retains its declared
+    primary/fallback order untouched.
     """
     primary = spec.get("primary")
     fallback = spec.get("fallback")
@@ -399,6 +400,16 @@ def resolve_routes(spec: dict, preference: str = "openrouter") -> tuple[dict | N
         ordered = sorted(routes, key=lambda r: 0 if _route_kind(r) == pref else 1)
         return ordered[0], ordered[1]
     return primary, fallback
+
+
+def primary_is_openrouter(spec: dict, preference: str = "openrouter") -> bool:
+    """True when OpenRouter is the *resolved primary* route for this reviewer.
+
+    Used by the cost/balance gates: under `direct` preference OpenRouter is only
+    a fallback, so its balance is not on the critical path.
+    """
+    p, _ = resolve_routes(spec or {}, preference)
+    return bool(p) and p.get("client") == "openrouter"
 
 
 def build_aichat_env(client: str) -> dict[str, str]:

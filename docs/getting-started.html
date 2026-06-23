@@ -137,9 +137,10 @@ without spending anything. Great for a sanity check.</p>
 <p>For power users with their own provider subscriptions, large diffs, and benchmark needs.</p>
 
 <h3>Multiple provider keys + direct-API routing</h3>
-<p>Three reviewers are <strong>dual-route</strong>: <code>glm-5.2</code>, <code>minimax-m3</code>, and
-<code>deepseek-v4-pro</code>. With their direct keys set, you can prefer each provider&rsquo;s own API
-first (cheaper, uses your subscriptions) and keep OpenRouter as the fallback.</p>
+<p>Three default-roster reviewers are <strong>dual-route</strong>: <code>glm-5.2</code>, <code>minimax-m3</code>, and
+<code>deepseek-v4-pro</code> (the custom-only <code>hermes-4.3</code> is dual-route too). With their direct
+keys set, you can prefer each provider&rsquo;s own API first (cheaper, uses your subscriptions)
+and keep OpenRouter as the fallback.</p>
 <pre><code>export ZAI_API_KEY="..."          # GLM direct (z.ai Coding Plan)
 export MINIMAX_API_KEY="..."      # MiniMax direct
 export DEEPSEEK_API_KEY="..."     # DeepSeek direct (api.deepseek.com)

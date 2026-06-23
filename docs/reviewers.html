@@ -83,9 +83,10 @@
       
       <article class="prose">
         
-<p>The registry has <strong>15 reviewers</strong>. Three are <strong>dual-route</strong> (a direct provider
-API plus OpenRouter) and are reordered by the <a href="configuration.html#routing">routing preference</a>;
-the rest are single-route API reviewers or paid-CLI reviewers. Model versions are the headline of this
+<p>The registry has <strong>15 reviewers</strong>. Three default-roster ones are <strong>dual-route</strong>
+(a direct provider API plus OpenRouter) and are reordered by the
+<a href="configuration.html#routing">routing preference</a> (the custom-only <code>hermes-4.3</code> is
+dual-route too); the rest are single-route API reviewers or paid-CLI reviewers. Model versions are the headline of this
 release: <strong>GLM&#8209;5.2</strong>, <strong>MiniMax&nbsp;M3</strong>, and the new default
 <strong>DeepSeek&nbsp;V4&nbsp;Pro</strong>.</p>
 
@@ -100,7 +101,7 @@ release: <strong>GLM&#8209;5.2</strong>, <strong>MiniMax&nbsp;M3</strong>, and t
 <tr><td><code>grok-4.20</code></td><td>OpenRouter (<code>x-ai/grok-4.20</code>)</td><td>2M ctx, pricey.</td></tr>
 <tr><td><code>deepseek-v4-pro</code> <span class="badge">dual-route</span> <span class="badge green">default DeepSeek</span></td><td>DeepSeek direct + OpenRouter (<code>deepseek/deepseek-v4-pro</code>)</td><td>1.6T MoE, 49B active, ~1M ctx; reasoning + security.</td></tr>
 <tr><td><code>deepseek-v3.2</code></td><td>OpenRouter</td><td><span class="badge gray">custom-only</span> superseded by v4-pro.</td></tr>
-<tr><td><code>hermes-4.3</code></td><td>Nous direct + OpenRouter fallback</td><td><span class="badge gray">custom-only</span></td></tr>
+<tr><td><code>hermes-4.3</code> <span class="badge">dual-route</span></td><td>Nous direct + OpenRouter fallback</td><td><span class="badge gray">custom-only</span></td></tr>
 <tr><td><code>gemini</code></td><td>Gemini CLI (paid sub)</td><td><span class="badge red">disabled</span> Windows .cmd tree-kill re-test pending; use <code>gemini-or</code> meanwhile.</td></tr>
 <tr><td><code>gemini-or</code></td><td>OpenRouter (<code>google/gemini-2.5-flash</code>)</td><td>~2s/call, best value.</td></tr>
 <tr><td><code>codex</code></td><td>Codex CLI (paid sub, GPT-5.x)</td><td>Thorough, slow; OpenRouter fallback.</td></tr>
@@ -112,7 +113,7 @@ release: <strong>GLM&#8209;5.2</strong>, <strong>MiniMax&nbsp;M3</strong>, and t
 
 <div class="callout note"><div class="ico">&#128260;</div><div>
 <strong>Dual-route vs CLI</strong>
-<p>The three dual-route reviewers respect <code>route_preference</code>. CLI reviewers
+<p>The dual-route reviewers respect <code>route_preference</code>. CLI reviewers
 (Codex / Claude / OpenCode / Gemini) keep their subscription primary with OpenRouter as a true fallback,
 no matter the routing preference. See <a href="configuration.html#routing">Routing preference</a>.</p>
 </div></div>

@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import load_config, estimate_tokens, resolve_routes, resolve_route_preference
+from _common import load_config, estimate_tokens, resolve_route_preference, primary_is_openrouter
 
 
 def main() -> int:
@@ -112,10 +112,10 @@ def main() -> int:
     if not args.skip_balance_check:
         # Only gate on OR balance when OpenRouter is the *resolved primary* for
         # some reviewer; under direct preference OR is just a fallback.
-        def _primary_is_or(name: str) -> bool:
-            p, _ = resolve_routes(cfg["reviewers"].get(name, {}), preference)
-            return bool(p) and p.get("client") == "openrouter"
-        uses_openrouter = any(_primary_is_or(name) for name in roster)
+        uses_openrouter = any(
+            primary_is_openrouter(cfg["reviewers"].get(name, {}), preference)
+            for name in roster
+        )
         if uses_openrouter and os.environ.get("OPENROUTER_API_KEY"):
             try:
                 from or_balance import probe

@@ -114,8 +114,8 @@ API keys are the one thing that is <em>not</em> in config: they come from enviro
 <tr><td><code>direct</code></td><td>Each provider&rsquo;s own API first, OpenRouter as fallback.</td><td>Cheaper / use your own subscriptions, or when your OpenRouter balance is depleted.</td></tr>
 </tbody>
 </table></div>
-<p>Only the three dual-route reviewers are reordered by this knob: <code>glm-5.2</code>,
-<code>minimax-m3</code>, and <code>deepseek-v4-pro</code>. <strong>CLI reviewers</strong>
+<p>Only dual-route reviewers are reordered by this knob: <code>glm-5.2</code>,
+<code>minimax-m3</code>, <code>deepseek-v4-pro</code>, and the custom-only <code>hermes-4.3</code>. <strong>CLI reviewers</strong>
 (Codex / Claude / OpenCode / Gemini) are <em>never</em> reordered &mdash; their CLI subscription stays
 primary and OpenRouter stays a true fallback.</p>
 

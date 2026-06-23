@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
     load_config, build_prompt, extract_json, normalize_findings,
     ARGUS_HOME, history_conn, resolve_roster, resolve_routes, resolve_route_preference,
+    primary_is_openrouter,
 )
 from detect_host import detect as detect_host
 import adapters
@@ -472,10 +473,9 @@ async def _main_async(args) -> int:
     # OR balance pre-flight: only matters when OpenRouter is the *resolved
     # primary* for some reviewer (under direct preference OR is a fallback and
     # its balance is not on the critical path).
-    def _primary_is_or(n: str) -> bool:
-        p, _ = resolve_routes(cfg["reviewers"][n], preference)
-        return bool(p) and p.get("client") == "openrouter"
-    uses_openrouter = any(_primary_is_or(n) for n in roster)
+    uses_openrouter = any(
+        primary_is_openrouter(cfg["reviewers"][n], preference) for n in roster
+    )
     if uses_openrouter and not args.skip_balance_check and os.environ.get("OPENROUTER_API_KEY"):
         try:
             from or_balance import probe
