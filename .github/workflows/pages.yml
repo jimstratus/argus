@@ -41,6 +41,11 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # Create/enable the Pages site (build type = GitHub Actions) if it
+          # doesn't exist yet, so the first deploy doesn't 404 on a repo where
+          # Pages was never turned on in Settings.
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
