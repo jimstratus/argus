@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
     load_config, build_prompt, extract_json, normalize_findings,
-    ARGUS_HOME, history_conn, resolve_roster,
+    ARGUS_HOME, history_conn, resolve_roster, resolve_routes, resolve_route_preference,
 )
 from detect_host import detect as detect_host
 import adapters
@@ -115,8 +115,10 @@ def _score(findings: list[dict], gt: dict) -> dict:
     }
 
 
-async def _dispatch(name: str, spec: dict, prompt: str, timeout: int) -> dict:
-    primary = spec.get("primary") or {}
+async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
+                    preference: str = "openrouter") -> dict:
+    primary, fb = resolve_routes(spec, preference)
+    primary = primary or {}
     adapter = adapters.get(primary.get("route"))
     if adapter is None:
         return {"findings": [], "latency_sec": 0.0, "primary_latency_sec": 0.0,
@@ -132,7 +134,6 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int) -> dict:
     fallback_used = False
     if r["exit_code"] != 0:
         primary_err = (r.get("stderr") or "")[:200]
-        fb = spec.get("fallback")
         if fb:
             fba = adapters.get(fb.get("route"))
             if fba is not None:
@@ -167,7 +168,8 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int) -> dict:
 
 async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                           runs: int, timeout: int, sem: asyncio.Semaphore,
-                          ts: str | None = None, max_wall_sec: int = 600) -> dict:
+                          ts: str | None = None, max_wall_sec: int = 600,
+                          preference: str = "openrouter") -> dict:
     per_fixture = []
     findings_keys_per_fixture: list[set[tuple[str, int]]] = []
     wall_start = time.monotonic()
@@ -189,7 +191,7 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                 continue
             try:
                 async with sem:
-                    d = await _dispatch(name, spec, prompt, timeout)
+                    d = await _dispatch(name, spec, prompt, timeout, preference)
             except Exception as e:
                 await _log_progress(f"{name:<16} {fx['name']:<18} run {idx+1}/{runs}  EXCEPTION: {type(e).__name__}: {str(e)[:80]}")
                 d = {"findings": [], "latency_sec": 0.0, "exit_code": 1,
@@ -401,6 +403,7 @@ async def _main_async(args) -> int:
     defaults = cfg["defaults"]
     timeout = int(defaults["reviewer_timeout_sec"])
     max_parallel = int(defaults["max_parallel"])
+    preference = resolve_route_preference(args.route_pref, cfg)
 
     fixture_filter = None
     if args.fixtures:
@@ -466,12 +469,13 @@ async def _main_async(args) -> int:
     if est_total >= warn_thresh:
         print(f"WARNING: estimate ${est_total:.4f} >= warn threshold ${warn_thresh}. Proceeding.", file=sys.stderr)
 
-    # OR balance pre-flight: if any OR reviewer in roster, confirm account has funds.
-    uses_openrouter = any(
-        (cfg["reviewers"][n].get("primary", {}).get("client") == "openrouter")
-        or (cfg["reviewers"][n].get("fallback", {}).get("client") == "openrouter")
-        for n in roster
-    )
+    # OR balance pre-flight: only matters when OpenRouter is the *resolved
+    # primary* for some reviewer (under direct preference OR is a fallback and
+    # its balance is not on the critical path).
+    def _primary_is_or(n: str) -> bool:
+        p, _ = resolve_routes(cfg["reviewers"][n], preference)
+        return bool(p) and p.get("client") == "openrouter"
+    uses_openrouter = any(_primary_is_or(n) for n in roster)
     if uses_openrouter and not args.skip_balance_check and os.environ.get("OPENROUTER_API_KEY"):
         try:
             from or_balance import probe
@@ -501,7 +505,8 @@ async def _main_async(args) -> int:
         fx["prompt"] = build_prompt(fx["diff"])
     sem = asyncio.Semaphore(max_parallel)
     tasks = [_bench_reviewer(n, cfg["reviewers"][n], fixtures, args.runs, timeout, sem,
-                              ts=ts, max_wall_sec=args.max_wall_sec) for n in roster]
+                              ts=ts, max_wall_sec=args.max_wall_sec, preference=preference)
+             for n in roster]
     gathered = await asyncio.gather(*tasks, return_exceptions=True)
     # Replace exceptions with error stubs so we never lose everything
     results = []
@@ -540,6 +545,11 @@ def main() -> int:
     ap.add_argument("--skip-balance-check", action="store_true", help="skip the OpenRouter balance pre-flight")
     ap.add_argument("--allow-free", action="store_true", help="include free-tier reviewers")
     ap.add_argument("--allow-logging", action="store_true", help="include reviewers with privacy: LOGS")
+    grp = ap.add_mutually_exclusive_group()
+    grp.add_argument("--route-pref", choices=["openrouter", "direct"], default=None,
+                     dest="route_pref", help="route preference for dual-route reviewers")
+    grp.add_argument("--prefer-direct", action="store_const", const="direct", dest="route_pref")
+    grp.add_argument("--prefer-openrouter", action="store_const", const="openrouter", dest="route_pref")
     args = ap.parse_args()
     return asyncio.run(_main_async(args))
 

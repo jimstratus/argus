@@ -123,16 +123,20 @@ flowchart LR
 
 ## Roster
 
-| Reviewer | Route | Notes |
+Reviewers marked **dual-route** have both a direct-provider API route and an
+OpenRouter route; which one is tried first is governed by
+[route preference](#routing--openrouter-vs-direct-api).
+
+| Reviewer | Route(s) | Notes |
 |---|---|---|
-| `glm-5.1` | aichat → z.ai Coding Plan (fallback OR `z-ai/glm-4.6`) | strong security + logic |
-| `minimax-m2.7` | aichat → minimaxi.chat (fallback OR `minimax/minimax-m2`) | high precision |
+| `glm-5.2` | **dual-route**: z.ai Coding Plan ↔ OR `z-ai/glm-5.2` | strong security + logic |
+| `minimax-m3` | **dual-route**: minimaxi.chat ↔ OR `minimax/minimax-m3` | high precision |
+| `deepseek-v4-pro` | **dual-route**: api.deepseek.com ↔ OR `deepseek/deepseek-v4-pro` | 1.6T MoE, 1M ctx, reasoning + security |
 | `kimi-k2.6` | aichat → OR `moonshotai/kimi-k2.5` | long-context agentic |
 | `mimo-v2-pro` | aichat → OR `xiaomi/mimo-v2-pro` | 1M ctx |
 | `qwen-3.6-plus` | aichat → OR `qwen/qwen3.6-plus` | 1M ctx, conservative |
 | `grok-4.20` | aichat → OR `x-ai/grok-4.20` | 2M ctx, pricey |
-| `deepseek-v3.2` | aichat → OR `deepseek/deepseek-v3.2` | cheap + fast |
-| `deepseek-v4-pro` | aichat → OR `deepseek/deepseek-v4-pro` | 1.6T MoE, 1M ctx, reasoning + security |
+| `deepseek-v3.2` | aichat → OR `deepseek/deepseek-v3.2` | **custom-only** — superseded by `deepseek-v4-pro` |
 | `gemini-or` | aichat → OR `google/gemini-2.5-flash` | 2s/call, best value |
 | `gemini` | `gemini` CLI (paid sub) | disabled pending Windows re-test of the tree-kill fix |
 | `codex` | `codex` CLI (paid sub) | GPT-5.x, thorough, slow |
@@ -145,13 +149,59 @@ flowchart LR
 
 | Profile | Members | Use |
 |---|---|---|
-| `quick` | `glm-5.1`, `gemini-or` | 2-reviewer smoke test |
-| `standard` *(default)* | `glm-5.1`, `minimax-m2.7`, `gemini-or`, `codex` | everyday review |
+| `quick` | `glm-5.2`, `gemini-or` | 2-reviewer smoke test |
+| `standard` *(default)* | `glm-5.2`, `minimax-m3`, `gemini-or`, `codex` | everyday review |
 | `panel` | 10 reviewers | maximum coverage |
-| `security` | `glm-5.1`, `deepseek-v3.2`, `codex`, `claude` | auth/crypto/input focus |
-| `deep` | `mimo-v2-pro`, `gemini-or`, `kimi-k2.6`, `codex` | long-context, large diffs |
-| `favorites` | `glm-5.1`, `minimax-m2.7` | direct-sub picks |
-| `leaderboard-top5` | `opencode`, `qwen-3.6-plus`, `glm-5.1`, `gemini-or`, `minimax-m2.7` | benchmark winners |
+| `security` | `glm-5.2`, `deepseek-v4-pro`, `codex`, `claude` | auth/crypto/input focus |
+| `deep` | `mimo-v2-pro`, `gemini-or`, `kimi-k2.6`, `deepseek-v4-pro`, `codex` | long-context, large diffs |
+| `favorites` | `glm-5.2`, `minimax-m3` | direct-sub picks |
+| `direct` | `glm-5.2`, `minimax-m3`, `deepseek-v4-pro`, `codex`, `claude`, `opencode` | direct-API subs only, no Gemini — pair with `route_preference: direct` |
+| `leaderboard-top5` | `opencode`, `qwen-3.6-plus`, `glm-5.2`, `gemini-or`, `minimax-m3` | benchmark winners |
+
+---
+
+## Routing — OpenRouter vs direct API
+
+Three reviewers are **dual-route**: they have both a direct-provider API route
+and an OpenRouter route.
+
+| Reviewer | Direct API | OpenRouter |
+|---|---|---|
+| `glm-5.2` | z.ai (`ZAI_API_KEY`) | `z-ai/glm-5.2` |
+| `minimax-m3` | minimaxi.chat (`MINIMAX_API_KEY`) | `minimax/minimax-m3` |
+| `deepseek-v4-pro` | api.deepseek.com (`DEEPSEEK_API_KEY`) | `deepseek/deepseek-v4-pro` |
+
+A single knob, `defaults.route_preference` in `config.yaml`, decides which one
+each dual-route reviewer tries **first** (the other becomes the automatic
+fallback):
+
+| `route_preference` | Tries first | Use when |
+|---|---|---|
+| `openrouter` *(default — public)* | OpenRouter | One `OPENROUTER_API_KEY` covers most reviewers. |
+| `direct` | each provider's own API | You have provider subs / your OpenRouter balance is depleted. |
+
+> CLI reviewers (`codex`, `claude`, `opencode`, `gemini`) are **never**
+> reordered — their CLI subscription stays primary and OpenRouter stays a true
+> fallback. Only the three dual-route reviewers above are affected.
+
+**Switch it per-run** (no config edit needed). Precedence is
+**CLI flag › `ARGUS_ROUTE_PREF` env › `config.yaml`**:
+
+```bash
+# One-time flag (works on dispatch.py / verify.py / benchmark.py / estimate_cost.py)
+python scripts/verify.py --all --prefer-direct
+python scripts/dispatch.py ... --route-pref direct      # explicit form
+python scripts/dispatch.py ... --prefer-openrouter      # force the public default
+
+# Env var (whole shell session)
+export ARGUS_ROUTE_PREF=direct
+
+# Persist it: set route_preference: direct in config.yaml defaults
+```
+
+The `direct` profile (`glm-5.2, minimax-m3, deepseek-v4-pro, codex, claude,
+opencode` — no Gemini) is the convenient roster to pair with
+`route_preference: direct` when OpenRouter is unavailable.
 
 ---
 
@@ -159,16 +209,21 @@ flowchart LR
 
 4 fixtures × 3 runs = 12 calls per reviewer. Total spend **~$0.42**.
 
+> Reviewer names below reflect the model versions in place at benchmark time
+> (`glm-5.1`, `minimax-m2.7`, `deepseek-v3.2`); those entries have since been
+> version-bumped to `glm-5.2` / `minimax-m3` / `deepseek-v4-pro`. Re-run
+> `--benchmark` to refresh the board against the current roster.
+
 | Rank | Reviewer | F1 | Precision | Recall | Avg call (s) |
 |---|---|---:|---:|---:|---:|
 | 🥇 | `opencode` | 0.811 | 0.896 | 0.754 | 48 |
 | 🥈 | `qwen-3.6-plus` | 0.761 | **1.000** | 0.650 | 76 |
-| 🥉 | `glm-5.1` | 0.697 | 0.772 | 0.725 | 27 |
+| 🥉 | `glm-5.1` → `glm-5.2` | 0.697 | 0.772 | 0.725 | 27 |
 | 4 | `gemini-or` (Flash) | 0.681 | 0.736 | 0.639 | **2** |
-| 5 | `minimax-m2.7` | 0.674 | 0.875 | 0.588 | 29 |
+| 5 | `minimax-m2.7` → `minimax-m3` | 0.674 | 0.875 | 0.588 | 29 |
 | 6 | `mimo-v2-pro` | 0.652 | 0.736 | 0.600 | 49 |
 | 7 | `codex` | 0.581 | 0.688 | 0.754 | 60 |
-| 8 | `deepseek-v3.2` | 0.572 | 0.778 | 0.494 | 6 |
+| 8 | `deepseek-v3.2` → `deepseek-v4-pro` | 0.572 | 0.778 | 0.494 | 6 |
 | 9 | `grok-4.20` | 0.557 | 0.592 | 0.533 | **2** |
 | 10 | `hermes-4.3` | 0.551 | 0.646 | 0.653 | 13 |
 | 11 | `kimi-k2.6` | 0.505 | 0.729 | 0.575 | 83 |
@@ -203,12 +258,18 @@ the board by "finding nothing" on the clean-baseline control.
 ├─ at least one CLI reviewer ──────────────────────────┤
 │  claude, codex, gemini, opencode, copilot            │
 ├─ at least one API key ───────────────────────────────┤
-│  OPENROUTER_API_KEY (covers 9 of 15 reviewers)       │
-│  ZAI_API_KEY, MINIMAX_API_KEY, KIMI_API_KEY          │
-│  GEMINI_API_KEY, OPENAI_API_KEY                      │
+│  OPENROUTER_API_KEY (covers most reviewers)          │
+│  ZAI_API_KEY, MINIMAX_API_KEY, DEEPSEEK_API_KEY      │
+│  KIMI_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY        │
 │  NOUSRESEARCH_API_KEY (optional)                     │
 └──────────────────────────────────────────────────────┘
 ```
+
+For the **public default** (`route_preference: openrouter`), a single
+`OPENROUTER_API_KEY` is enough to run most reviewers. The direct-API keys
+(`ZAI_API_KEY`, `MINIMAX_API_KEY`, `DEEPSEEK_API_KEY`) are only needed if you
+switch to `route_preference: direct` — see
+[Routing](#routing--openrouter-vs-direct-api).
 
 ### Setup
 
@@ -233,13 +294,17 @@ python scripts/benchmark.py --runs 3 --profile standard --progress
 ### Environment
 
 ```bash
-export OPENROUTER_API_KEY=...
-export ZAI_API_KEY=...            # z.ai Coding Plan endpoint
-export MINIMAX_API_KEY=...
+export OPENROUTER_API_KEY=...       # public default route — covers most reviewers
+export ZAI_API_KEY=...              # z.ai Coding Plan endpoint (GLM-5.2 direct)
+export MINIMAX_API_KEY=...          # MiniMax M3 direct
+export DEEPSEEK_API_KEY=...         # DeepSeek V4 Pro direct (api.deepseek.com)
 export KIMI_API_KEY=...             # consumer-scoped (not Moonshot Platform)
 export GEMINI_API_KEY=...
 export OPENAI_API_KEY=...
 export NOUSRESEARCH_API_KEY=...     # optional, for Hermes direct
+
+# Optional: prefer direct provider APIs over OpenRouter for dual-route reviewers
+export ARGUS_ROUTE_PREF=direct      # default is "openrouter"
 ```
 
 API keys live in env — **never** written to disk by Argus. aichat reads `AICHAT_<CLIENT>_API_KEY`, which Argus forwards at subprocess dispatch time.
@@ -254,7 +319,7 @@ API keys live in env — **never** written to disk by Argus. aichat reads `AICHA
 /argus                                     # default profile, diff = git diff HEAD
 /argus --profile security
 /argus --profile leaderboard-top5
-/argus --custom "glm-5.1,deepseek-v3.2,claude"
+/argus --custom "glm-5.2,deepseek-v4-pro,claude"
 /argus --pr https://github.com/org/repo/pull/42
 /argus --files "src/auth/**/*.ts"
 /argus --benchmark --runs 3               # fixture-suite leaderboard
@@ -271,10 +336,14 @@ git diff HEAD > "$RUN_DIR/diff.patch"
 
 python scripts/dispatch.py \
   --run-dir "$RUN_DIR" \
-  --roster "glm-5.1,minimax-m2.7,gemini-or,codex" \
+  --roster "glm-5.2,minimax-m3,gemini-or,codex" \
   --diff "$RUN_DIR/diff.patch"
 
 python scripts/merge.py --run-dir "$RUN_DIR"
+
+# Prefer direct provider APIs for this run (OpenRouter becomes the fallback):
+python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm-5.2,minimax-m3,deepseek-v4-pro" \
+  --diff "$RUN_DIR/diff.patch" --prefer-direct
 ```
 
 ## Flags
@@ -285,6 +354,8 @@ python scripts/merge.py --run-dir "$RUN_DIR"
 | `--custom LIST` / `--models LIST` | one-off roster |
 | `--pr URL` / `--files GLOB` / `-` | diff source |
 | `--overlay {security,deep,audit}` | prompt overlay |
+| `--route-pref {openrouter,direct}` | route preference for dual-route reviewers (`defaults.route_preference`; env `ARGUS_ROUTE_PREF`) |
+| `--prefer-direct` / `--prefer-openrouter` | shorthands for `--route-pref direct` / `openrouter` |
 | `--timeout N` | override the 360s per-reviewer timeout (`defaults.reviewer_timeout_sec`) |
 | `--yes-cost` / `ARGUS_YES_COST=1` | downgrade a cost block to a warning |
 | `--skip-balance-check` | skip OR balance pre-flight |
@@ -397,7 +468,7 @@ For large rosters, prefer one shell per reviewer with a shared timestamp:
 
 ```bash
 TS=$(date +%Y%m%dT%H%M%S)
-for reviewer in glm-5.1 minimax-m2.7 gemini-or codex opencode; do
+for reviewer in glm-5.2 minimax-m3 gemini-or codex opencode; do
   python scripts/benchmark.py \
     --roster "$reviewer" \
     --runs 3 \
@@ -547,7 +618,7 @@ argus/
 ├──────────────────────────────────────────────────────────────────────────┤
 │  OpenRouter reasoning-provider trap                                      │
 │  ──────────────────────────────────                                      │
-│  z-ai/glm-5.1 and minimax/minimax-m2.7 slugs can route to Io Net or      │
+│  z-ai/glm-5.2 and minimax/minimax-m3 slugs can route to Io Net or        │
 │  Together providers that return {content: null, reasoning: "..."}.       │
 │                                                                          │
 │  Mitigation: aichat patch applies reasoning-exclude + provider-ignore.   │
@@ -573,8 +644,13 @@ argus/
 
 ## Documentation
 
+📖 **Full knowledge-base site:** **https://jimstratus.github.io/argus/** —
+responsive, searchable, dark/light, with onboarding tracks, diagrams, and a
+benchmark chart. (Sources for the site live in [`docs/`](docs/).)
+
 | Document | Description |
 |----------|-------------|
+| [KB site](https://jimstratus.github.io/argus/) | Hosted HTML docs (GitHub Pages) |
 | [SKILL.md](SKILL.md) | Claude Code skill entry — what `/argus` runs |
 | [CLAUDE.md](CLAUDE.md) | AI coding assistant project context |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Development guide and key scripts |

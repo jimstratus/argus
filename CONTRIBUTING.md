@@ -9,6 +9,15 @@ Adding or changing a reviewer is a config change, not a code change:
 3. `python scripts/verify.py --roster <name>` to confirm the route works
 4. Optionally add the reviewer to a profile
 
+**Dual-route reviewers** (a direct-provider API route *and* an OpenRouter
+route — e.g. `glm-5.2`, `minimax-m3`, `deepseek-v4-pro`): declare both as
+`primary`/`fallback`. `_common.resolve_routes` reorders them by
+`route_preference` (`openrouter` default | `direct`), so declaration order
+doesn't matter — never re-order routes inline in a script. If you add a new
+direct provider, add its `aichat_clients:` entry (with `api_key_env:`) and
+verify both directions: `verify.py --roster <name> --prefer-openrouter` and
+`--prefer-direct`.
+
 ## Fixture contributions
 
 New fixtures are valuable — they sharpen the benchmark signal.
