@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import load_config, extract_json
+from _common import load_config, extract_json, resolve_routes, resolve_route_preference
 import adapters
 
 
@@ -37,15 +37,15 @@ async def _try_route(route_cfg: dict, timeout: int) -> tuple[bool, str, dict]:
     return False, "no JSON in response", r
 
 
-async def _ping(name: str, spec: dict, timeout: int) -> dict:
-    primary = spec.get("primary") or {}
+async def _ping(name: str, spec: dict, timeout: int, preference: str = "openrouter") -> dict:
+    primary, fb = resolve_routes(spec, preference)
+    primary = primary or {}
     ok, note, r = await _try_route(primary, timeout)
     total_latency = r.get("latency_sec", 0.0)
     route_used = primary.get("route")
     fallback_used = False
 
     if not ok:
-        fb = spec.get("fallback")
         if fb:
             ok2, note2, r2 = await _try_route(fb, timeout)
             total_latency += r2.get("latency_sec", 0.0)
@@ -80,8 +80,9 @@ async def _main_async(args) -> int:
     else:
         roster = cfg["profiles"]["standard"]["members"]
 
+    preference = resolve_route_preference(args.route_pref, cfg)
     timeout = 45
-    results = await asyncio.gather(*[_ping(n, reviewers[n], timeout) for n in roster if n in reviewers])
+    results = await asyncio.gather(*[_ping(n, reviewers[n], timeout, preference) for n in roster if n in reviewers])
 
     if args.json:
         print(json.dumps(results, indent=2))
@@ -100,6 +101,11 @@ def main() -> int:
     ap.add_argument("--profile")
     ap.add_argument("--roster")
     ap.add_argument("--json", action="store_true")
+    grp = ap.add_mutually_exclusive_group()
+    grp.add_argument("--route-pref", choices=["openrouter", "direct"], default=None,
+                     dest="route_pref", help="route preference for dual-route reviewers")
+    grp.add_argument("--prefer-direct", action="store_const", const="direct", dest="route_pref")
+    grp.add_argument("--prefer-openrouter", action="store_const", const="openrouter", dest="route_pref")
     args = ap.parse_args()
     return asyncio.run(_main_async(args))
 

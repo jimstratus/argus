@@ -2,12 +2,12 @@
 name: argus
 description: >-
   Multi-model code review. Dispatches a diff / PR / files to a configurable roster
-  of reviewers (GLM-5.1, MiniMax M2.7, Kimi K2.6, MiMo-V2-Pro, Qwen3.6-Plus,
-  Grok 4.20, DeepSeek V3.2, Gemini CLI, Codex CLI, Claude CLI, OpenCode CLI)
+  of reviewers (GLM-5.2, MiniMax M3, Kimi K2.6, MiMo-V2-Pro, Qwen3.6-Plus,
+  Grok 4.20, DeepSeek V4 Pro, Gemini CLI, Codex CLI, Claude CLI, OpenCode CLI)
   in parallel, applies a confidence filter with cross-reviewer corroboration,
   and produces one merged review. Includes benchmark mode that runs the full
   fixture suite to establish preferred reviewers.
-argument-hint: "[--profile NAME | --custom LIST | --models LIST] [--pr URL | --files GLOB | -] [--benchmark] [--stats] [--dry-run] [--yes-cost] [--allow-free] [--save-as NAME] [--output {md,json,gsd}]"
+argument-hint: "[--profile NAME | --custom LIST | --models LIST] [--pr URL | --files GLOB | -] [--route-pref {openrouter,direct} | --prefer-direct | --prefer-openrouter] [--benchmark] [--stats] [--dry-run] [--yes-cost] [--allow-free] [--save-as NAME] [--output {md,json,gsd}]"
 allowed-tools:
   - Bash
   - Read
@@ -38,7 +38,8 @@ Extract from `$ARGUMENTS`:
 
 | Flag | Effect |
 |---|---|
-| `--profile NAME` | Use named profile (quick / standard / panel / security / deep / favorites / saved-custom-name) |
+| `--profile NAME` | Use named profile (quick / standard / panel / security / deep / favorites / direct / leaderboard-top5 / saved-custom-name) |
+| `--route-pref {openrouter,direct}` | Route preference for dual-route reviewers (glm-5.2 / minimax-m3 / deepseek-v4-pro). `openrouter` (default) tries OpenRouter first; `direct` tries each provider's own API first. Shorthands: `--prefer-direct`, `--prefer-openrouter`. Env: `ARGUS_ROUTE_PREF`. |
 | `--custom "a,b,c"` | One-off roster; combine with `--save-as NAME` to persist |
 | `--models "a,b,c"` | Alias for `--custom`, never saved |
 | `--pr URL` | Diff via `gh pr diff URL` |
@@ -55,7 +56,8 @@ Extract from `$ARGUMENTS`:
 | `--refresh` | Check for model ID updates on OpenRouter |
 | `--compare RUN_A RUN_B` | Diff two previous runs |
 
-Env overrides: `ARGUS_PROFILE`, `ARGUS_YES_COST=1`, `ARGUS_OUTPUT=gsd`.
+Env overrides: `ARGUS_PROFILE`, `ARGUS_YES_COST=1`, `ARGUS_OUTPUT=gsd`,
+`ARGUS_ROUTE_PREF={openrouter,direct}`.
 
 ## 2. Detect host CLI and adapt roster
 
@@ -104,6 +106,11 @@ If diff is empty after filtering, abort.
 ```bash
 python "$ARGUS_HOME/scripts/estimate_cost.py" --roster "$ROSTER" --diff "$RUN_DIR/diff.patch"
 ```
+
+If the user passed `--route-pref` / `--prefer-direct` / `--prefer-openrouter`
+(or `ARGUS_ROUTE_PREF` is set), forward the same flag to `estimate_cost.py`,
+`dispatch.py`, and `benchmark.py` so the cost/balance gate and dispatch agree
+on which provider each dual-route reviewer hits first.
 
 Exit codes: 0 OK, 1 WARN (≥ warn threshold or low OpenRouter balance),
 2 BLOCK (≥ block threshold) **or invalid roster** — check stderr to tell them

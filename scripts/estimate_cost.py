@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import load_config, estimate_tokens
+from _common import load_config, estimate_tokens, resolve_route_preference, primary_is_openrouter
 
 
 def main() -> int:
@@ -30,10 +30,16 @@ def main() -> int:
     ap.add_argument("--fixtures", type=int, default=1)
     ap.add_argument("--skip-balance-check", action="store_true", help="skip the OpenRouter balance pre-flight")
     ap.add_argument("--yes-cost", action="store_true", help="downgrade a cost block to a warning (exit 1 instead of 2)")
+    grp = ap.add_mutually_exclusive_group()
+    grp.add_argument("--route-pref", choices=["openrouter", "direct"], default=None,
+                     dest="route_pref", help="route preference for dual-route reviewers")
+    grp.add_argument("--prefer-direct", action="store_const", const="direct", dest="route_pref")
+    grp.add_argument("--prefer-openrouter", action="store_const", const="openrouter", dest="route_pref")
     args = ap.parse_args()
 
     cfg = load_config()
     d = cfg["defaults"]
+    preference = resolve_route_preference(args.route_pref, cfg)
     expected_out = args.expected_output_tokens or int(d["default_output_tokens_est"])
     prompt_overhead = int(d["prompt_overhead_tokens"])
 
@@ -78,6 +84,7 @@ def main() -> int:
 
     out = {
         "mode": args.mode,
+        "route_preference": preference,
         "input_tokens_est": in_tokens,
         "output_tokens_per_call_est": expected_out,
         "per_reviewer": rows,
@@ -103,9 +110,10 @@ def main() -> int:
 
     # OR balance pre-flight for non-dry invocations
     if not args.skip_balance_check:
+        # Only gate on OR balance when OpenRouter is the *resolved primary* for
+        # some reviewer; under direct preference OR is just a fallback.
         uses_openrouter = any(
-            (cfg["reviewers"].get(name, {}).get("primary", {}).get("client") == "openrouter")
-            or (cfg["reviewers"].get(name, {}).get("fallback", {}).get("client") == "openrouter")
+            primary_is_openrouter(cfg["reviewers"].get(name, {}), preference)
             for name in roster
         )
         if uses_openrouter and os.environ.get("OPENROUTER_API_KEY"):

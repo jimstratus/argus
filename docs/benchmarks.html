@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Benchmarks · Argus</title>
+  <meta name="description" content="Argus benchmark mode scores each reviewer against labeled fixtures using precision, recall, and F1 to build a leaderboard, with a clean-baseline false-positive control.">
+  <link rel="canonical" href="https://jimstratus.github.io/argus/benchmarks.html">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Benchmarks · Argus">
+  <meta property="og:description" content="Argus benchmark mode scores each reviewer against labeled fixtures using precision, recall, and F1 to build a leaderboard, with a clean-baseline false-positive control.">
+  <meta property="og:url" content="https://jimstratus.github.io/argus/benchmarks.html">
+  <meta name="twitter:card" content="summary">
+  <meta name="theme-color" content="#6d28d9">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c3aed'/%3E%3Cstop offset='1' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='5' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/style.css">
+  <script>
+  /* No-flash theme: runs before paint. */
+  (function () {
+    try {
+      var saved = localStorage.getItem('argus-theme');
+      var theme = saved || (window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) {}
+  })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <button class="icon-btn hamburger" id="sidebar-toggle" aria-label="Toggle menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-eye" aria-hidden="true"></span>
+      <span class="brand-name">Argus</span>
+      <span class="brand-sub">multi-model code review</span>
+    </a>
+    <div class="topbar-spacer"></div>
+    <a class="topbar-link" href="https://github.com/jimstratus/argus" target="_blank" rel="noopener" aria-label="GitHub repository">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 1.5a10.5 10.5 0 0 0-3.32 20.47c.52.1.71-.23.71-.5v-1.76c-2.9.63-3.52-1.4-3.52-1.4-.48-1.2-1.16-1.52-1.16-1.52-.95-.65.07-.64.07-.64 1.05.07 1.6 1.08 1.6 1.08.94 1.6 2.45 1.14 3.05.87.1-.68.37-1.14.66-1.4-2.32-.27-4.76-1.16-4.76-5.16 0-1.14.41-2.07 1.07-2.8-.11-.27-.46-1.34.1-2.78 0 0 .87-.28 2.86 1.07a9.9 9.9 0 0 1 5.2 0c1.98-1.35 2.85-1.07 2.85-1.07.57 1.44.21 2.51.11 2.78.67.73 1.07 1.66 1.07 2.8 0 4.01-2.45 4.88-4.78 5.14.38.33.71.97.71 1.96v2.9c0 .28.19.61.72.5A10.5 10.5 0 0 0 12 1.5Z"/></svg>
+    </a>
+    <button class="icon-btn theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
+      <svg class="ico-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-13a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1Zm0 14a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0v-1a1 1 0 0 1 1-1ZM4 11a1 1 0 0 1 0 2H3a1 1 0 1 1 0-2h1Zm17 0a1 1 0 1 1 0 2h-1a1 1 0 1 1 0-2h1ZM5.6 5.6a1 1 0 0 1 1.4 0l.7.7A1 1 0 0 1 6.3 7.7l-.7-.7a1 1 0 0 1 0-1.4Zm11 11a1 1 0 0 1 1.4 0l.7.7a1 1 0 0 1-1.4 1.4l-.7-.7a1 1 0 0 1 0-1.4Zm1.4-11a1 1 0 0 1 0 1.4l-.7.7a1 1 0 1 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0Zm-11 11a1 1 0 0 1 0 1.4l-.7.7a1 1 0 0 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0Z"/></svg>
+      <svg class="ico-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+    </button>
+  </header>
+
+  <div class="layout">
+    <div class="backdrop" id="backdrop" hidden></div>
+    <aside class="sidebar" id="sidebar">
+      <nav class="side-nav" aria-label="Primary">
+<div class="nav-group"><div class="nav-group-title">Start</div><ul>
+<li><a href="index.html">Home</a></li>
+<li><a href="getting-started.html">Getting Started</a></li>
+<li><a href="configuration.html">Configuration</a></li>
+</ul></div>
+<div class="nav-group"><div class="nav-group-title">Reference</div><ul>
+<li><a href="reviewers.html">Reviewers</a></li>
+<li><a href="profiles.html">Profiles</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="benchmarks.html" class="active" aria-current="page">Benchmarks</a></li>
+</ul></div>
+<div class="nav-group"><div class="nav-group-title">Project</div><ul>
+<li><a href="contributing.html">Contributing</a></li>
+<li><a href="faq.html">FAQ</a></li>
+<li><a href="glossary.html">Glossary</a></li>
+</ul></div>
+</nav>
+    </aside>
+
+    <main id="main" class="content">
+      <nav class="breadcrumb" aria-label="Breadcrumb"><a href="index.html">Home</a> <span class="sep">/</span> <span class="crumb-group">Reference</span> <span class="sep">/</span> <span class="crumb-cur">Benchmarks</span></nav>
+      <div class="page-head">
+        <h1>Benchmarks</h1>
+        <a class="md-link" href="https://github.com/jimstratus/argus/blob/master/DEVELOPMENT.md" target="_blank" rel="noopener" title="Open the source markdown on GitHub">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm2 7V10l2 2 2-2v4h2V9h-2l-2 2-2-2H7v5h2-2Zm10-1 2.5-3H17V8h-2v5h2v0Z"/></svg>
+          View DEVELOPMENT.md
+        </a>
+      </div>
+      <aside class="on-this-page" aria-label="On this page"><div class="otp-title">On this page</div><ul><li><a href="#metrics">Precision, recall, F1</a></li>
+<li><a href="#fixtures">Fixtures & scoring</a></li>
+<li><a href="#leaderboard">Reference leaderboard</a></li>
+<li><a href="#running">Running a benchmark</a></li></ul></aside>
+      <article class="prose">
+        
+<p>Benchmark mode runs the whole fixture suite across a roster and scores each reviewer against
+ground-truth labels. It answers the question that matters when choosing a roster: <em>which reviewers
+actually find the planted bugs without crying wolf?</em></p>
+
+<h2 id="metrics">Precision, recall, F1</h2>
+<p>A finding <strong>matches</strong> ground truth when the file matches and the line is within tolerance
+(<code>|line diff| &le; 3</code> by default). From the true positives (tp), false positives (fp), and false
+negatives (fn):</p>
+<ul>
+  <li><strong>Precision</strong> = tp / (tp + fp) &mdash; of what it flagged, how much was real (low = noisy).</li>
+  <li><strong>Recall</strong> = tp / (tp + fn) &mdash; of the real bugs, how many it caught (low = misses bugs).</li>
+  <li><strong>F1</strong> = 2&middot;P&middot;R / (P + R) &mdash; the harmonic mean; the headline ranking axis.</li>
+</ul>
+
+<h2 id="fixtures">Fixtures &amp; scoring</h2>
+<p>The current suite has four diff-based fixtures. The <strong>clean-baseline</strong> is a false-positive
+control: it contains no real bug, so the correct output is zero findings.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Fixture</th><th>Expected</th></tr></thead>
+<tbody>
+<tr><td><code>sql-injection</code></td><td>Planted SQL injection.</td></tr>
+<tr><td><code>race-refund</code></td><td>Concurrency / race on a refund path.</td></tr>
+<tr><td><code>secrets-leak</code></td><td>Leaked secret / credential.</td></tr>
+<tr><td><code>clean-baseline</code></td><td><strong>0 findings</strong> &mdash; false-positive control.</td></tr>
+</tbody>
+</table></div>
+<p>A clean baseline with no findings scores P = R = F1 = 1.0 &mdash; but only for successful, parseable runs
+(a reviewer that crashes or returns garbage does not get a free perfect score).</p>
+
+<h2 id="leaderboard">Reference leaderboard</h2>
+<p>F1 score by reviewer, from the reference benchmark run. The chart re-themes with light / dark mode.</p>
+<div class="chart-wrap" style="height:360px">
+  <canvas id="bench-chart" data-bench='[["opencode",0.811],["qwen-3.6-plus",0.761],["glm-5.x",0.697],["gemini-or",0.681],["minimax",0.674],["mimo-v2-pro",0.652],["codex",0.581],["deepseek",0.572],["grok-4.20",0.557],["hermes-4.3",0.551],["kimi-k2.6",0.505]]'></canvas>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Rank</th><th>Reviewer</th><th>F1</th><th>Precision</th><th>Recall</th><th>Avg call (s)</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>opencode</td><td>0.811</td><td>0.896</td><td>0.754</td><td>48</td></tr>
+<tr><td>2</td><td>qwen-3.6-plus</td><td>0.761</td><td>1.000</td><td>0.650</td><td>76</td></tr>
+<tr><td>3</td><td>glm-5.x</td><td>0.697</td><td>0.772</td><td>0.725</td><td>27</td></tr>
+<tr><td>4</td><td>gemini-or (Flash)</td><td>0.681</td><td>0.736</td><td>0.639</td><td>2</td></tr>
+<tr><td>5</td><td>minimax</td><td>0.674</td><td>0.875</td><td>0.588</td><td>29</td></tr>
+<tr><td>6</td><td>mimo-v2-pro</td><td>0.652</td><td>0.736</td><td>0.600</td><td>49</td></tr>
+<tr><td>7</td><td>codex</td><td>0.581</td><td>0.688</td><td>0.754</td><td>60</td></tr>
+<tr><td>8</td><td>deepseek</td><td>0.572</td><td>0.778</td><td>0.494</td><td>6</td></tr>
+<tr><td>9</td><td>grok-4.20</td><td>0.557</td><td>0.592</td><td>0.533</td><td>2</td></tr>
+<tr><td>10</td><td>hermes-4.3</td><td>0.551</td><td>0.646</td><td>0.653</td><td>13</td></tr>
+<tr><td>11</td><td>kimi-k2.6</td><td>0.505</td><td>0.729</td><td>0.575</td><td>83</td></tr>
+</tbody>
+</table></div>
+<p class="muted"><strong>Footnote:</strong> This is a historical run (4 fixtures &times; 3 runs = 12 calls per
+reviewer, ~$0.42 total). Reviewer names have since been version-bumped (e.g. <code>glm-5.x</code> &rarr;
+<code>glm-5.2</code>, <code>minimax</code> &rarr; <code>minimax-m3</code>, <code>deepseek</code> &rarr;
+<code>deepseek-v4-pro</code>); the numbers are shown as-recorded. With only four fixtures the leaderboard is
+noisy &mdash; treat it as directional.</p>
+
+<h2 id="running">Running a benchmark</h2>
+<pre><code># Smoke test one fixture first (catches config bugs in ~30s):
+python scripts/benchmark.py --runs 1 --fixtures sql-injection --profile panel
+
+# Full run across the suite:
+python scripts/benchmark.py --runs 3 --profile panel
+python scripts/benchmark.py --runs 3 --roster "glm-5.2,minimax-m3,opencode"</code></pre>
+<p>Average call time is a cost / quality trade-off column, not a ranking axis: a fast, cheap frontier
+reviewer wins over a slow, expensive one when F1 is comparable.</p>
+
+      </article>
+      <footer class="page-footer">
+        <p>Argus &mdash; Multi-model code review, in parallel. &middot; <a href="https://github.com/jimstratus/argus" target="_blank" rel="noopener">GitHub</a> &middot; MIT License &middot; &copy; 2026</p>
+        <p class="muted">Named for Argus Panoptes, the hundred-eyed giant. <em>Given enough eyeballs, all bugs are shallow.</em></p>
+      </footer>
+    </main>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

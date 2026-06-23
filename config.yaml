@@ -18,6 +18,21 @@ version: 1
 
 defaults:
   profile: standard
+  # ───────────────────────────────────────────────────────────────────
+  # Route preference — which provider a reviewer tries FIRST when it has
+  # BOTH a direct-API route and an OpenRouter route (currently glm-5.2,
+  # minimax-m3, deepseek-v4-pro).
+  #   openrouter  → OpenRouter first, direct API as fallback  (PUBLIC DEFAULT:
+  #                 one OPENROUTER_API_KEY covers most reviewers)
+  #   direct      → each provider's own API first, OpenRouter as fallback
+  #                 (cheaper / your own subs; what you'd use if your OR
+  #                 balance is depleted)
+  # CLI reviewers (codex/claude/opencode/gemini) are NEVER reordered — their
+  # CLI sub stays primary and OpenRouter stays a true fallback.
+  # Override per-run with --prefer-direct / --prefer-openrouter / --route-pref,
+  # or the ARGUS_ROUTE_PREF environment variable. Precedence:
+  #   CLI flag  >  ARGUS_ROUTE_PREF  >  this config value.
+  route_preference: openrouter
   privacy_mode: true              # exclude reviewers with privacy: LOGS
   allow_free: false               # require --allow-free to include free-tier routes
   allow_logging: false            # require --allow-logging to include privacy: LOGS
@@ -49,29 +64,29 @@ defaults:
 # ─────────────────────────────────────────────────────────────────────
 reviewers:
 
-  glm-5.1:
-    display: "GLM-5.1 (primary: z.ai direct; fallback: OR non-reasoning glm-4.6)"
+  glm-5.2:
+    display: "GLM-5.2 (Zhipu / z.ai — direct + OpenRouter dual route)"
     role: [security, logic, code]
     ctx: 131072
     tier: paid
     privacy: ok
     cost_per_m: { input: 0.60, output: 2.20 }
-    primary:  { route: aichat, client: zai,        model: "glm-5.1" }
-    # fallback deliberately uses glm-4.6 non-reasoning — glm-5.1 on OR routes to
-    # reasoning-only providers (Io Net) returning content=null on large prompts.
-    fallback: { route: aichat, client: openrouter, model: "z-ai/glm-4.6" }
+    # Dual route. Declared order is direct-first; `defaults.route_preference`
+    # (or --prefer-*) decides which is actually tried first at dispatch time.
+    # The OpenRouter reasoning-only trap (content=null on large prompts via
+    # Io Net) is mitigated by aichat_clients.openrouter.patch below.
+    primary:  { route: aichat, client: zai,        model: "glm-5.2" }
+    fallback: { route: aichat, client: openrouter, model: "z-ai/glm-5.2" }
 
-  minimax-m2.7:
-    display: "MiniMax M2.7 (primary: direct; fallback: OR non-reasoning m2)"
+  minimax-m3:
+    display: "MiniMax M3 (MiniMax — direct + OpenRouter dual route)"
     role: [style, correctness, agent]
     ctx: 204800
     tier: paid
     privacy: ok
     cost_per_m: { input: 0.30, output: 1.20 }
-    primary:  { route: aichat, client: minimax,    model: "MiniMax-M2.7" }
-    # fallback uses m2 (non-reasoning) — m2.7 on OR (Together provider) returns
-    # content=null with reasoning-only on large prompts.
-    fallback: { route: aichat, client: openrouter, model: "minimax/minimax-m2" }
+    primary:  { route: aichat, client: minimax,    model: "MiniMax-M3" }
+    fallback: { route: aichat, client: openrouter, model: "minimax/minimax-m3" }
 
   kimi-k2.6:
     display: "Kimi K2 (OR; k2.5 GA — k2.6 preview not yet on OR)"
@@ -111,23 +126,29 @@ reviewers:
     cost_per_m: { input: 3.00, output: 15.00 }
     primary:  { route: aichat, client: openrouter, model: "x-ai/grok-4.20" }
 
+  # Superseded by deepseek-v4-pro (kept for benchmark-history continuity).
+  # No longer in any default profile; name it via --custom/--models to use it.
   deepseek-v3.2:
-    display: "DeepSeek V3.2"
+    display: "DeepSeek V3.2 (superseded by deepseek-v4-pro)"
     role: [reasoning, security, code]
     ctx: 131072
     tier: paid
     privacy: ok
+    custom_only: true
     cost_per_m: { input: 0.27, output: 1.10 }
     primary:  { route: aichat, client: openrouter, model: "deepseek/deepseek-v3.2" }
 
   deepseek-v4-pro:
-    display: "DeepSeek V4 Pro (1.6T MoE, 49B active, 1M ctx, released 2026-04-24)"
+    display: "DeepSeek V4 Pro (1.6T MoE, 49B active, 1M ctx — direct + OpenRouter dual route)"
     role: [reasoning, security, code, long-context]
     ctx: 1048576
     tier: paid
     privacy: ok
     cost_per_m: { input: 0.435, output: 0.87 }
-    primary:  { route: aichat, client: openrouter, model: "deepseek/deepseek-v4-pro" }
+    # Dual route: DeepSeek's own platform (api.deepseek.com) + OpenRouter.
+    # `route_preference` / --prefer-* selects which is tried first.
+    primary:  { route: aichat, client: deepseek,   model: "deepseek-v4-pro" }
+    fallback: { route: aichat, client: openrouter, model: "deepseek/deepseek-v4-pro" }
 
   # Custom-only — not included in any default profile. Available via --custom or --models.
   hermes-4.3:
@@ -213,27 +234,30 @@ reviewers:
 profiles:
   quick:
     description: "2-reviewer smoke test"
-    members: [glm-5.1, gemini-or]
+    members: [glm-5.2, gemini-or]
   standard:
     description: "Balanced everyday review — your favorites + paid CLIs + fast Gemini"
-    members: [glm-5.1, minimax-m2.7, gemini-or, codex]
+    members: [glm-5.2, minimax-m3, gemini-or, codex]
   panel:
     description: "Maximum coverage (host CLI auto-skipped; copilot, gemini-direct, grok disabled from default)"
-    members: [glm-5.1, minimax-m2.7, kimi-k2.6, mimo-v2-pro, qwen-3.6-plus, deepseek-v3.2, gemini-or, codex, claude, opencode]
+    members: [glm-5.2, minimax-m3, kimi-k2.6, mimo-v2-pro, qwen-3.6-plus, deepseek-v4-pro, gemini-or, codex, claude, opencode]
   security:
     description: "Auth / crypto / input-handling changes"
-    members: [glm-5.1, deepseek-v3.2, codex, claude]
+    members: [glm-5.2, deepseek-v4-pro, codex, claude]
     prompt_overlay: security
   deep:
     description: "Long-context, large diffs, cross-file correctness (grok excluded — use --custom if 2M ctx needed)"
-    members: [mimo-v2-pro, gemini-or, kimi-k2.6, codex]
+    members: [mimo-v2-pro, gemini-or, kimi-k2.6, deepseek-v4-pro, codex]
     prompt_overlay: deep
   favorites:
-    description: "Your picks (GLM-5.1 + MiniMax M2.7 direct subs)"
-    members: [glm-5.1, minimax-m2.7]
+    description: "Your picks (GLM-5.2 + MiniMax M3 direct subs)"
+    members: [glm-5.2, minimax-m3]
+  direct:
+    description: "Direct-API subs only, no Gemini — pair with route_preference=direct (or --prefer-direct) when your OpenRouter balance is depleted"
+    members: [glm-5.2, minimax-m3, deepseek-v4-pro, codex, claude, opencode]
   leaderboard-top5:
-    description: "Post-bench top-5 by F1 (opencode, qwen3.6+, glm5.1, gemini-or, minimax)"
-    members: [opencode, qwen-3.6-plus, glm-5.1, gemini-or, minimax-m2.7]
+    description: "Post-bench top-5 by F1 (opencode, qwen3.6+, glm-5.2, gemini-or, minimax)"
+    members: [opencode, qwen-3.6-plus, glm-5.2, gemini-or, minimax-m3]
 
 # ─────────────────────────────────────────────────────────────────────
 # Host-CLI adaptation
@@ -268,7 +292,7 @@ aichat_clients:
             reasoning:
               exclude: true
               # Cap the provider's internal reasoning budget. Without this,
-              # reasoning models (z-ai/glm-5.1, minimax/minimax-m2.7) can
+              # reasoning models (z-ai/glm-5.2, minimax/minimax-m3) can
               # spend 3+ minutes thinking on a 30K-token diff even when we
               # don't want to see the thoughts. 2000 tokens ≈ 30-60s budget.
               max_tokens: 2000
@@ -284,6 +308,10 @@ aichat_clients:
     type: openai-compatible
     api_base: https://api.minimaxi.chat/v1
     api_key_env: MINIMAX_API_KEY
+  deepseek:
+    type: openai-compatible
+    api_base: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
   moonshot:
     type: openai-compatible
     api_base: https://api.moonshot.ai/v1

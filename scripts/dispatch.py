@@ -19,17 +19,23 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
     load_config, build_prompt, estimate_tokens, extract_json,
-    normalize_findings, resolve_roster,
+    normalize_findings, resolve_roster, resolve_routes, resolve_route_preference,
 )
 from detect_host import detect as detect_host
 import adapters
 
 
-async def _dispatch_one(name: str, spec: dict, prompt: str, timeout: int) -> dict:
-    """Try primary; if primary fails, try fallback. Return structured result."""
+async def _dispatch_one(name: str, spec: dict, prompt: str, timeout: int,
+                        preference: str = "openrouter") -> dict:
+    """Try primary; if primary fails, try fallback. Return structured result.
+
+    Route order is resolved from the reviewer's declared routes by
+    `preference` (openrouter|direct) — see _common.resolve_routes.
+    """
     result: dict = {"name": name, "findings": []}
 
-    primary_cfg = spec.get("primary") or {}
+    primary_cfg, fallback_cfg = resolve_routes(spec, preference)
+    primary_cfg = primary_cfg or {}
     primary_route = primary_cfg.get("route")
     adapter = adapters.get(primary_route)
 
@@ -56,7 +62,7 @@ async def _dispatch_one(name: str, spec: dict, prompt: str, timeout: int) -> dic
         primary_err = (stderr or "")[:200]
         result["primary_error"] = primary_err
         # Try fallback
-        fb_cfg = spec.get("fallback")
+        fb_cfg = fallback_cfg
         if fb_cfg:
             fb_route = fb_cfg.get("route")
             fb_adapter = adapters.get(fb_route)
@@ -92,6 +98,7 @@ async def _main_async(args) -> int:
     timeout = int(args.timeout or defaults["reviewer_timeout_sec"])
     max_parallel = int(defaults["max_parallel"])
     ctx_safety = float(defaults["ctx_safety_ratio"])
+    preference = resolve_route_preference(args.route_pref, cfg)
 
     names = [r.strip() for r in args.roster.split(",") if r.strip()]
     host, _ = detect_host()
@@ -137,7 +144,7 @@ async def _main_async(args) -> int:
                 return r
 
             try:
-                r = await _dispatch_one(name, spec, prompt, timeout)
+                r = await _dispatch_one(name, spec, prompt, timeout, preference)
             except Exception as e:
                 r = {"name": name, "findings": [], "exit_code": 1,
                      "error": f"{type(e).__name__}: {e}"}
@@ -161,6 +168,7 @@ async def _main_async(args) -> int:
     summary = {
         "roster": roster,
         "dropped": {n: reason for n, reason in drops},
+        "route_preference": preference,
         "prompt_tokens_est": prompt_tokens,
         "reviewers": {
             r["name"]: {
@@ -191,6 +199,14 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=None, help="override reviewer_timeout_sec for this run")
     ap.add_argument("--allow-free", action="store_true", help="include free-tier reviewers")
     ap.add_argument("--allow-logging", action="store_true", help="include reviewers with privacy: LOGS")
+    grp = ap.add_mutually_exclusive_group()
+    grp.add_argument("--route-pref", choices=["openrouter", "direct"], default=None,
+                     dest="route_pref",
+                     help="route preference for dual-route reviewers (overrides config/env)")
+    grp.add_argument("--prefer-direct", action="store_const", const="direct", dest="route_pref",
+                     help="shorthand for --route-pref direct")
+    grp.add_argument("--prefer-openrouter", action="store_const", const="openrouter", dest="route_pref",
+                     help="shorthand for --route-pref openrouter")
     args = ap.parse_args()
     return asyncio.run(_main_async(args))
 

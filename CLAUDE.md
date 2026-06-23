@@ -1,12 +1,18 @@
 # Argus — project context for Claude
 
 > Multi-model code review skill. Dispatches a diff to a configurable roster of
-> frontier LLM reviewers (GLM-5.1, MiniMax M2.7, Kimi K2, MiMo-V2-Pro,
-> Qwen3.6-Plus, Grok 4.20, DeepSeek V3.2, Hermes 4.3, Gemini CLI, Codex CLI,
+> frontier LLM reviewers (GLM-5.2, MiniMax M3, Kimi K2, MiMo-V2-Pro,
+> Qwen3.6-Plus, Grok 4.20, DeepSeek V4 Pro, Hermes 4.3, Gemini CLI, Codex CLI,
 > Claude CLI, OpenCode CLI, GitHub Copilot CLI), runs them in parallel, filters
 > by confidence with cross-reviewer corroboration, and produces one merged
 > review. Includes a benchmark mode that runs a fixture suite across all
 > reviewers to build a leaderboard.
+>
+> GLM-5.2, MiniMax M3, and DeepSeek V4 Pro are **dual-route** (direct provider
+> API + OpenRouter); `defaults.route_preference` (`openrouter` default | `direct`)
+> — overridable via `--route-pref` / `--prefer-direct` / `--prefer-openrouter`
+> or `ARGUS_ROUTE_PREF` — decides which each tries first. CLI reviewers are
+> never reordered. A hosted KB site lives under `docs/` (GitHub Pages).
 
 **Working directory for this project:** `d:\projects\.skills\argus\`
 
@@ -62,9 +68,16 @@ argus/
   py -3.12 "$ARGUS_HOME/scripts/<script>.py" ...
   ```
 - **API keys in env (never on disk):** `ZAI_API_KEY`, `MINIMAX_API_KEY`,
+  `DEEPSEEK_API_KEY` (DeepSeek V4 Pro direct — api.deepseek.com),
   `OPENROUTER_API_KEY`, `KIMI_API_KEY` (consumer — not usable for Moonshot
   dev API), `NOUSRESEARCH_API_KEY` (missing — Hermes primary uses OR fallback),
   `GEMINI_API_KEY`, `OPENAI_API_KEY`. Claude CLI uses its own auth. `_common.build_aichat_env()` forwards `$<PROVIDER>_API_KEY` → `AICHAT_<CLIENT>_API_KEY` at subprocess dispatch.
+- **Route preference:** `ARGUS_ROUTE_PREF={openrouter,direct}` (or
+  `--route-pref` / `--prefer-direct` / `--prefer-openrouter`) overrides
+  `defaults.route_preference`. Only `glm-5.2`, `minimax-m3`, `deepseek-v4-pro`
+  are reordered; logic lives in `_common.resolve_routes` /
+  `resolve_route_preference` (single source of truth, used by dispatch /
+  verify / benchmark / estimate_cost).
 - **Installed CLIs:** `aichat 0.30.0` (scoop), `gemini` / `codex` / `copilot` (npm globals as `.cmd` shims — `shutil.which` resolves them), `claude`, `opencode` (scoop).
 
 ## Commit style
@@ -113,8 +126,8 @@ path for rosters of ≤4 reviewers.
 RUN_DIR="$ARGUS_HOME/runs/$(date +%Y%m%dT%H%M%S)-manual"
 mkdir -p "$RUN_DIR"
 git diff HEAD > "$RUN_DIR/diff.patch"
-py -3.12 "$ARGUS_HOME/scripts/estimate_cost.py" --roster "glm-5.1,minimax-m2.7,gemini,codex" --diff "$RUN_DIR/diff.patch"
-py -3.12 "$ARGUS_HOME/scripts/dispatch.py" --run-dir "$RUN_DIR" --roster "glm-5.1,minimax-m2.7,gemini,codex" --diff "$RUN_DIR/diff.patch"
+py -3.12 "$ARGUS_HOME/scripts/estimate_cost.py" --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+py -3.12 "$ARGUS_HOME/scripts/dispatch.py" --run-dir "$RUN_DIR" --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
 py -3.12 "$ARGUS_HOME/scripts/merge.py" --run-dir "$RUN_DIR"
 ```
 
@@ -191,8 +204,10 @@ tested returns usable JSON.
 
 | Issue | Status | Fix |
 |---|---|---|
-| GLM-5.1 z.ai direct → "Insufficient balance" | fallback via OR works | top up z.ai account |
-| MiniMax-M2.7 direct → works (slow, 20s for fixture) | — | — |
+| OpenRouter balance depleted (Ryan) | set `route_preference: direct` / `--prefer-direct` (or `ARGUS_ROUTE_PREF=direct`); skip Gemini (OR-only) — use the `direct` profile | top up OR if the public default route is wanted |
+| GLM-5.2 z.ai direct → "Insufficient balance" | fallback via OR works (under `openrouter` pref OR is primary anyway) | top up z.ai account |
+| MiniMax-M3 direct → works (slow, ~20s for fixture) | — | — |
+| DeepSeek V4 Pro direct (`DEEPSEEK_API_KEY`) | dual-route; OR fallback works | set `DEEPSEEK_API_KEY` for the direct route |
 | Kimi `KIMI_API_KEY` is consumer-only | forced OR primary (`moonshotai/kimi-k2.5`) | need Moonshot Platform dev key for k2.6-preview |
 | Nous Hermes direct → `NOUSRESEARCH_API_KEY` not in env | OR fallback works | set env var if wanted |
 | Gemini CLI disabled (timeout hang) | run_subprocess now tree-kills on timeout | re-test on Windows, then re-enable in config |
@@ -201,9 +216,11 @@ tested returns usable JSON.
 
 ## Reviewer recommendations (initial, pre-benchmark)
 
-Ryan's preferences so far: GLM-5.1 and MiniMax M2.7 (has direct subs).
-Default `standard` profile: `glm-5.1, minimax-m2.7, gemini, codex` — balances
-Chinese + Western frontier, direct subs + paid CLIs.
+Ryan's preferences so far: GLM-5.2 and MiniMax M3 (has direct subs).
+Default `standard` profile: `glm-5.2, minimax-m3, gemini-or, codex` — balances
+Chinese + Western frontier, direct subs + paid CLIs. When OR balance is
+depleted, Ryan runs the `direct` profile with `route_preference: direct`
+(direct subs + CLIs, Gemini skipped).
 
 After benchmark completes we'll know agreement-matrix redundancies and which
 reviewers can demote to `custom_only` or fallback.

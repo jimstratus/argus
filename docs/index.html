@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Argus</title>
+  <meta name="description" content="Argus is a multi-model code-review CLI skill: it dispatches a diff to a roster of frontier LLM reviewers in parallel, filters by confidence with cross-reviewer corroboration, and produces one merged review.">
+  <link rel="canonical" href="https://jimstratus.github.io/argus/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Argus">
+  <meta property="og:description" content="Argus is a multi-model code-review CLI skill: it dispatches a diff to a roster of frontier LLM reviewers in parallel, filters by confidence with cross-reviewer corroboration, and produces one merged review.">
+  <meta property="og:url" content="https://jimstratus.github.io/argus/">
+  <meta name="twitter:card" content="summary">
+  <meta name="theme-color" content="#6d28d9">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c3aed'/%3E%3Cstop offset='1' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='5' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/style.css">
+  <script>
+  /* No-flash theme: runs before paint. */
+  (function () {
+    try {
+      var saved = localStorage.getItem('argus-theme');
+      var theme = saved || (window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) {}
+  })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <button class="icon-btn hamburger" id="sidebar-toggle" aria-label="Toggle menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-eye" aria-hidden="true"></span>
+      <span class="brand-name">Argus</span>
+      <span class="brand-sub">multi-model code review</span>
+    </a>
+    <div class="topbar-spacer"></div>
+    <a class="topbar-link" href="https://github.com/jimstratus/argus" target="_blank" rel="noopener" aria-label="GitHub repository">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 1.5a10.5 10.5 0 0 0-3.32 20.47c.52.1.71-.23.71-.5v-1.76c-2.9.63-3.52-1.4-3.52-1.4-.48-1.2-1.16-1.52-1.16-1.52-.95-.65.07-.64.07-.64 1.05.07 1.6 1.08 1.6 1.08.94 1.6 2.45 1.14 3.05.87.1-.68.37-1.14.66-1.4-2.32-.27-4.76-1.16-4.76-5.16 0-1.14.41-2.07 1.07-2.8-.11-.27-.46-1.34.1-2.78 0 0 .87-.28 2.86 1.07a9.9 9.9 0 0 1 5.2 0c1.98-1.35 2.85-1.07 2.85-1.07.57 1.44.21 2.51.11 2.78.67.73 1.07 1.66 1.07 2.8 0 4.01-2.45 4.88-4.78 5.14.38.33.71.97.71 1.96v2.9c0 .28.19.61.72.5A10.5 10.5 0 0 0 12 1.5Z"/></svg>
+    </a>
+    <button class="icon-btn theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
+      <svg class="ico-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-13a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1Zm0 14a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0v-1a1 1 0 0 1 1-1ZM4 11a1 1 0 0 1 0 2H3a1 1 0 1 1 0-2h1Zm17 0a1 1 0 1 1 0 2h-1a1 1 0 1 1 0-2h1ZM5.6 5.6a1 1 0 0 1 1.4 0l.7.7A1 1 0 0 1 6.3 7.7l-.7-.7a1 1 0 0 1 0-1.4Zm11 11a1 1 0 0 1 1.4 0l.7.7a1 1 0 0 1-1.4 1.4l-.7-.7a1 1 0 0 1 0-1.4Zm1.4-11a1 1 0 0 1 0 1.4l-.7.7a1 1 0 1 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0Zm-11 11a1 1 0 0 1 0 1.4l-.7.7a1 1 0 0 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0Z"/></svg>
+      <svg class="ico-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+    </button>
+  </header>
+
+  <div class="layout">
+    <div class="backdrop" id="backdrop" hidden></div>
+    <aside class="sidebar" id="sidebar">
+      <nav class="side-nav" aria-label="Primary">
+<div class="nav-group"><div class="nav-group-title">Start</div><ul>
+<li><a href="index.html" class="active" aria-current="page">Home</a></li>
+<li><a href="getting-started.html">Getting Started</a></li>
+<li><a href="configuration.html">Configuration</a></li>
+</ul></div>
+<div class="nav-group"><div class="nav-group-title">Reference</div><ul>
+<li><a href="reviewers.html">Reviewers</a></li>
+<li><a href="profiles.html">Profiles</a></li>
+<li><a href="architecture.html">Architecture</a></li>
+<li><a href="benchmarks.html">Benchmarks</a></li>
+</ul></div>
+<div class="nav-group"><div class="nav-group-title">Project</div><ul>
+<li><a href="contributing.html">Contributing</a></li>
+<li><a href="faq.html">FAQ</a></li>
+<li><a href="glossary.html">Glossary</a></li>
+</ul></div>
+</nav>
+    </aside>
+
+    <main id="main" class="content">
+      <nav class="breadcrumb" aria-label="Breadcrumb"><a href="index.html">Home</a></nav>
+      <div class="page-head">
+        <h1>Argus</h1>
+        <a class="md-link" href="https://github.com/jimstratus/argus/blob/master/README.md" target="_blank" rel="noopener" title="Open the source markdown on GitHub">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm2 7V10l2 2 2-2v4h2V9h-2l-2 2-2-2H7v5h2-2Zm10-1 2.5-3H17V8h-2v5h2v0Z"/></svg>
+          View README.md
+        </a>
+      </div>
+      <aside class="on-this-page" aria-label="On this page"><div class="otp-title">On this page</div><ul><li><a href="#why">Why a panel?</a></li>
+<li><a href="#features">What you get</a></li>
+<li><a href="#quick-start">Quick start</a></li></ul></aside>
+      <article class="prose">
+        
+<section class="hero">
+  <div class="hero-eyes"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+  <h1>Argus</h1>
+  <p class="tagline">Multi-model code review, in parallel.</p>
+  <p>Argus dispatches a git diff, PR, or file set to a roster of frontier LLM reviewers at the same time,
+  filters their findings by confidence with cross-reviewer corroboration, and merges everything into a
+  single, de-duplicated review. One model misses bugs; two produce noise &mdash; a filtered panel of six
+  beats any single reviewer.</p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="getting-started.html">Get started &rarr;</a>
+    <a class="btn btn-ghost" href="architecture.html">How it works</a>
+    <a class="btn btn-ghost" href="https://github.com/jimstratus/argus" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</section>
+
+<p>Named for <strong>Argus Panoptes</strong>, the hundred-eyed giant of Greek myth. The original
+Linus&rsquo;s Law: <em>given enough eyeballs, all bugs are shallow.</em> Argus is a
+<a href="getting-started.html">Claude Code skill</a> &mdash; invoke it as <code>/argus</code> &mdash; backed by a
+small set of standalone Python scripts.</p>
+
+<div class="stat-row">
+  <div class="stat"><div class="num">15</div><div class="lbl">Reviewers in the registry</div></div>
+  <div class="stat"><div class="num">8</div><div class="lbl">Curated profiles</div></div>
+  <div class="stat"><div class="num">&ge;2</div><div class="lbl">Reviewers to corroborate</div></div>
+  <div class="stat"><div class="num">80</div><div class="lbl">Confidence threshold</div></div>
+</div>
+
+<h2 id="why">Why a panel?</h2>
+<div class="card-grid">
+  <div class="card">
+    <div class="card-ico">1</div>
+    <h3>One model misses bugs</h3>
+    <p>Even frontier models have blind spots. A single reviewer&rsquo;s recall is capped by its own biases.</p>
+  </div>
+  <div class="card">
+    <div class="card-ico">2</div>
+    <h3>Two produce noise</h3>
+    <p>Add a second voice and you get more coverage &mdash; but also more false positives competing for attention.</p>
+  </div>
+  <div class="card">
+    <div class="card-ico">6</div>
+    <h3>Six, filtered, win</h3>
+    <p>A panel filtered by a confidence threshold and a corroboration boost surfaces real issues and suppresses the noise.</p>
+  </div>
+</div>
+
+<h2 id="features">What you get</h2>
+<div class="card-grid">
+  <div class="card"><h3><a href="reviewers.html">Frontier roster</a></h3><p>GLM&#8209;5.2, MiniMax&nbsp;M3, DeepSeek&nbsp;V4&nbsp;Pro, Kimi, Qwen, Grok, plus Codex / Claude / OpenCode CLIs.</p></div>
+  <div class="card"><h3><a href="configuration.html">Routing preference</a></h3><p>One knob picks OpenRouter-first (public default) or your own direct-API subscriptions first.</p></div>
+  <div class="card"><h3><a href="architecture.html">Corroboration merge</a></h3><p>Confidence threshold + a +15 boost when reviewers agree, with &plusmn;3-line clustering.</p></div>
+  <div class="card"><h3><a href="benchmarks.html">Benchmark mode</a></h3><p>Score reviewers against labeled fixtures (precision / recall / F1) to build a leaderboard.</p></div>
+  <div class="card"><h3><a href="profiles.html">Profiles</a></h3><p>quick, standard, panel, security, deep, favorites, direct, leaderboard&#8209;top5.</p></div>
+  <div class="card"><h3><a href="faq.html">Privacy-aware</a></h3><p>API keys live only in your environment &mdash; never written to disk by Argus.</p></div>
+</div>
+
+<h2 id="quick-start">Quick start</h2>
+<p>Inside Claude Code, the simplest invocation reviews your current diff with the default
+<code>standard</code> profile:</p>
+<pre><code>/argus
+/argus --profile security
+/argus --custom "glm-5.2,deepseek-v4-pro,claude"
+/argus --pr https://github.com/owner/repo/pull/123
+/argus --benchmark --runs 3
+/argus --dry-run</code></pre>
+<p>Prefer the shell? The end-to-end pipeline is three scripts &mdash; estimate, dispatch, merge:</p>
+<pre><code>RUN_DIR="$ARGUS_HOME/runs/$(date +%Y%m%dT%H%M%S)-manual"; mkdir -p "$RUN_DIR"
+git diff HEAD &gt; "$RUN_DIR/diff.patch"
+python scripts/estimate_cost.py --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+python scripts/merge.py --run-dir "$RUN_DIR"</code></pre>
+
+<div class="callout tip"><div class="ico">&#128161;</div><div>
+<strong>New here?</strong><p>Head to <a href="getting-started.html">Getting Started</a> for a beginner track
+(one API key, five commands) and an advanced track (direct-API routing, profiles, parallel benchmarks).</p>
+</div></div>
+
+      </article>
+      <footer class="page-footer">
+        <p>Argus &mdash; Multi-model code review, in parallel. &middot; <a href="https://github.com/jimstratus/argus" target="_blank" rel="noopener">GitHub</a> &middot; MIT License &middot; &copy; 2026</p>
+        <p class="muted">Named for Argus Panoptes, the hundred-eyed giant. <em>Given enough eyeballs, all bugs are shallow.</em></p>
+      </footer>
+    </main>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

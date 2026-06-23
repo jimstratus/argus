@@ -30,13 +30,17 @@ python scripts/verify.py --all
 API keys live in env — **never** written to disk by Argus. aichat reads `AICHAT_<CLIENT>_API_KEY`, which Argus forwards at subprocess dispatch time.
 
 ```bash
-export OPENROUTER_API_KEY=***
-export ZAI_API_KEY=***
-export MINIMAX_API_KEY=***
+export OPENROUTER_API_KEY=***       # public default route — covers most reviewers
+export ZAI_API_KEY=***              # GLM-5.2 direct
+export MINIMAX_API_KEY=***          # MiniMax M3 direct
+export DEEPSEEK_API_KEY=***         # DeepSeek V4 Pro direct (api.deepseek.com)
 export KIMI_API_KEY=***
 export GEMINI_API_KEY=***
 export OPENAI_API_KEY=***
 export NOUSRESEARCH_API_KEY=***     # optional
+
+# Optional: route preference for dual-route reviewers (default: openrouter)
+export ARGUS_ROUTE_PREF=direct
 ```
 
 ## Project Structure
@@ -88,7 +92,7 @@ argus/
 
 ```bash
 # Estimate cost before running
-python scripts/estimate_cost.py --roster "glm-5.1,minimax-m2.7,gemini-or,codex" \
+python scripts/estimate_cost.py --roster "glm-5.2,minimax-m3,gemini-or,codex" \
   --diff <(git diff HEAD)
 
 # Dispatch parallel review
@@ -96,7 +100,7 @@ RUN_DIR="$ARGUS_HOME/runs/$(date +%Y%m%dT%H%M%S)-manual"
 mkdir -p "$RUN_DIR"
 git diff HEAD > "$RUN_DIR/diff.patch"
 python scripts/dispatch.py --run-dir "$RUN_DIR" \
-  --roster "glm-5.1,minimax-m2.7,gemini-or,codex" \
+  --roster "glm-5.2,minimax-m3,gemini-or,codex" \
   --diff "$RUN_DIR/diff.patch"
 
 # Merge results
@@ -111,7 +115,7 @@ python scripts/benchmark.py --runs 3 --profile standard --progress
 
 # For large rosters, use parallel shells:
 TS=$(date +%Y%m%dT%H%M%S)
-for reviewer in glm-5.1 minimax-m2.7 gemini-or codex opencode; do
+for reviewer in glm-5.2 minimax-m3 gemini-or codex opencode; do
   python scripts/benchmark.py \
     --roster "$reviewer" \
     --runs 3 --progress \
@@ -129,7 +133,7 @@ python scripts/aggregate_bench.py --ts "$TS"
 python scripts/verify.py --all
 
 # Check specific reviewer
-python scripts/verify.py --roster glm-5.1
+python scripts/verify.py --roster glm-5.2
 
 # JSON output for scripting
 python scripts/verify.py --json --all
@@ -162,6 +166,34 @@ Semantics:
 Drops are written to `dispatch_summary.json` under `"dropped"` and noted on
 stderr. `estimate_cost.py` rejects unknown reviewer names outright (exit 2,
 labeled `INVALID ROSTER` so it can't be mistaken for a cost block).
+
+### Route Preference — single source of truth
+
+Reviewers `glm-5.2`, `minimax-m3`, and `deepseek-v4-pro` are **dual-route**:
+each declares a direct-provider API route and an OpenRouter route (as
+`primary`/`fallback` in `config.yaml`). `_common.resolve_routes(spec, preference)`
+returns the `(primary, fallback)` pair **ordered by preference** at dispatch
+time — dispatch.py, verify.py, benchmark.py, and estimate_cost.py all call it
+(**never re-order routes inline**).
+
+| `route_preference` | Tries first | Fallback |
+|---|---|---|
+| `openrouter` *(default)* | OpenRouter route | direct-API route |
+| `direct` | direct-API route | OpenRouter route |
+
+Classification (`_common._route_kind`): an `aichat` route with
+`client: openrouter` is `openrouter`; any other `aichat` route is `direct`; a
+non-aichat route is `cli`. **Only the exact `{direct, openrouter}` pair is
+reordered** — CLI reviewers (which may keep OpenRouter as a *true* fallback,
+e.g. `codex`) are never reordered, so a free CLI sub is never demoted below a
+paid OpenRouter fallback.
+
+Preference precedence (`_common.resolve_route_preference`):
+**CLI flag (`--route-pref` / `--prefer-direct` / `--prefer-openrouter`) ›
+`ARGUS_ROUTE_PREF` env › `defaults.route_preference` › `openrouter`**.
+The OR-balance pre-flight in estimate_cost/benchmark only fires when OpenRouter
+is the *resolved primary* for some reviewer, so a `direct`-preference run with a
+depleted OR balance is not gated.
 
 ### Host-CLI Awareness
 
@@ -301,7 +333,7 @@ python scripts/verify.py --all
 python scripts/benchmark.py --runs 1 --fixtures sql-injection --progress
 
 # Cost estimate without dispatching
-python scripts/estimate_cost.py --roster "glm-5.1,minimax-m2.7,gemini-or,codex" \
+python scripts/estimate_cost.py --roster "glm-5.2,minimax-m3,gemini-or,codex" \
   --diff <(git diff HEAD)
 ```
 
@@ -320,6 +352,6 @@ before a full run — it catches provider-config bugs in ~30s instead of 40min.
 ## Known Gotchas
 
 - **Windows .cmd shim tree-kill**: fixed — `run_subprocess` kills the whole process tree on timeout (killpg on POSIX, `taskkill /T /F` on Windows). gemini-direct stays disabled until re-tested on Windows; `gemini-or` remains the default route.
-- **OpenRouter reasoning providers**: `z-ai/glm-5.1` and `minimax/minimax-m2.7` may route to providers returning `{content: null}`. Mitigation: aichat patch applies reasoning-exclude + provider-ignore.
+- **OpenRouter reasoning providers**: `z-ai/glm-5.2` and `minimax/minimax-m3` may route to providers returning `{content: null}`. Mitigation: aichat patch applies reasoning-exclude + provider-ignore.
 - **Argv length on Windows (~32KB)**: fixed — all CLI adapters pipe the prompt via stdin; no adapter embeds it in argv.
 - **Full-codebase audit prompt mismatch**: Default prompt optimized for PR review. Use `--overlay audit` for empty-tree→HEAD diffs.

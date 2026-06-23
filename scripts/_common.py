@@ -346,6 +346,72 @@ def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
     return dedup, drops
 
 
+VALID_ROUTE_PREFS = ("openrouter", "direct")
+
+
+def _route_kind(route_cfg: dict | None) -> str | None:
+    """Classify a single route config.
+
+    'openrouter' — aichat via the openrouter client
+    'direct'     — aichat via any other (provider-direct) client
+    'cli'        — a CLI route (gemini/codex/claude/opencode/copilot)
+    """
+    if not route_cfg:
+        return None
+    if route_cfg.get("route") != "aichat":
+        return "cli"
+    return "openrouter" if route_cfg.get("client") == "openrouter" else "direct"
+
+
+def resolve_route_preference(cli_value: str | None = None,
+                             cfg: dict | None = None) -> str:
+    """Resolve the active route preference.
+
+    Precedence: explicit CLI value > ARGUS_ROUTE_PREF env > config default >
+    'openrouter'. Unknown values fall back to 'openrouter'.
+    """
+    val = cli_value or os.environ.get("ARGUS_ROUTE_PREF")
+    if not val:
+        cfg = cfg or load_config()
+        val = cfg.get("defaults", {}).get("route_preference", "openrouter")
+    return val if val in VALID_ROUTE_PREFS else "openrouter"
+
+
+def resolve_routes(spec: dict, preference: str = "openrouter") -> tuple[dict | None, dict | None]:
+    """Order a reviewer's two routes into (primary, fallback) by preference.
+
+    Reordering applies to any reviewer whose two routes are exactly the
+    {direct-API, OpenRouter} pair — currently glm-5.2, minimax-m3,
+    deepseek-v4-pro, and (custom-only) hermes-4.3. For those, `preference`
+    ('openrouter' | 'direct') decides which is tried first; the other becomes
+    the fallback. Every other reviewer — single-route reviewers and CLI
+    reviewers that keep OpenRouter as a true fallback — retains its declared
+    primary/fallback order untouched.
+    """
+    primary = spec.get("primary")
+    fallback = spec.get("fallback")
+    routes = [r for r in (primary, fallback) if r]
+    if len(routes) < 2:
+        return primary, fallback
+    kinds = {_route_kind(r) for r in routes}
+    if kinds == {"direct", "openrouter"}:
+        pref = preference if preference in VALID_ROUTE_PREFS else "openrouter"
+        # stable sort keeps declared order within a class; preferred kind first
+        ordered = sorted(routes, key=lambda r: 0 if _route_kind(r) == pref else 1)
+        return ordered[0], ordered[1]
+    return primary, fallback
+
+
+def primary_is_openrouter(spec: dict, preference: str = "openrouter") -> bool:
+    """True when OpenRouter is the *resolved primary* route for this reviewer.
+
+    Used by the cost/balance gates: under `direct` preference OpenRouter is only
+    a fallback, so its balance is not on the critical path.
+    """
+    p, _ = resolve_routes(spec or {}, preference)
+    return bool(p) and p.get("client") == "openrouter"
+
+
 def build_aichat_env(client: str) -> dict[str, str]:
     """Build env dict for an aichat subprocess with the right API key var set.
 

@@ -1,5 +1,6 @@
 runs/
 benchmarks/
+_site/
 history.db
 *.pyc
 __pycache__/
