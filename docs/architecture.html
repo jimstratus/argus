@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture · Argus</title>
+  <meta name="description" content="How Argus works end to end: the review pipeline, subagent-per-reviewer dispatch, the merge / corroboration logic, host-CLI awareness, and the history.db schema.">
+  <link rel="canonical" href="https://jimstratus.github.io/argus/architecture.html">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Architecture · Argus">
+  <meta property="og:description" content="How Argus works end to end: the review pipeline, subagent-per-reviewer dispatch, the merge / corroboration logic, host-CLI awareness, and the history.db schema.">
+  <meta property="og:url" content="https://jimstratus.github.io/argus/architecture.html">
+  <meta name="twitter:card" content="summary">
+  <meta name="theme-color" content="#6d28d9">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c3aed'/%3E%3Cstop offset='1' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='5' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/style.css">
+  <script>
+  /* No-flash theme: runs before paint. */
+  (function () {
+    try {
+      var saved = localStorage.getItem('argus-theme');
+      var theme = saved || (window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) {}
+  })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <button class="icon-btn hamburger" id="sidebar-toggle" aria-label="Toggle menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-eye" aria-hidden="true"></span>
+      <span class="brand-name">Argus</span>
+      <span class="brand-sub">multi-model code review</span>
+    </a>
+    <div class="topbar-spacer"></div>
+    <a class="topbar-link" href="https://github.com/jimstratus/argus" target="_blank" rel="noopener" aria-label="GitHub repository">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 1.5a10.5 10.5 0 0 0-3.32 20.47c.52.1.71-.23.71-.5v-1.76c-2.9.63-3.52-1.4-3.52-1.4-.48-1.2-1.16-1.52-1.16-1.52-.95-.65.07-.64.07-.64 1.05.07 1.6 1.08 1.6 1.08.94 1.6 2.45 1.14 3.05.87.1-.68.37-1.14.66-1.4-2.32-.27-4.76-1.16-4.76-5.16 0-1.14.41-2.07 1.07-2.8-.11-.27-.46-1.34.1-2.78 0 0 .87-.28 2.86 1.07a9.9 9.9 0 0 1 5.2 0c1.98-1.35 2.85-1.07 2.85-1.07.57 1.44.21 2.51.11 2.78.67.73 1.07 1.66 1.07 2.8 0 4.01-2.45 4.88-4.78 5.14.38.33.71.97.71 1.96v2.9c0 .28.19.61.72.5A10.5 10.5 0 0 0 12 1.5Z"/></svg>
+    </a>
+    <button class="icon-btn theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
+      <svg class="ico-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-13a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1Zm0 14a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0v-1a1 1 0 0 1 1-1ZM4 11a1 1 0 0 1 0 2H3a1 1 0 1 1 0-2h1Zm17 0a1 1 0 1 1 0 2h-1a1 1 0 1 1 0-2h1ZM5.6 5.6a1 1 0 0 1 1.4 0l.7.7A1 1 0 0 1 6.3 7.7l-.7-.7a1 1 0 0 1 0-1.4Zm11 11a1 1 0 0 1 1.4 0l.7.7a1 1 0 0 1-1.4 1.4l-.7-.7a1 1 0 0 1 0-1.4Zm1.4-11a1 1 0 0 1 0 1.4l-.7.7a1 1 0 1 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0Zm-11 11a1 1 0 0 1 0 1.4l-.7.7a1 1 0 0 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0Z"/></svg>
+      <svg class="ico-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+    </button>
+  </header>
+
+  <div class="layout">
+    <div class="backdrop" id="backdrop" hidden></div>
+    <aside class="sidebar" id="sidebar">
+      <nav class="side-nav" aria-label="Primary">
+<div class="nav-group"><div class="nav-group-title">Start</div><ul>
+<li><a href="index.html">Home</a></li>
+<li><a href="getting-started.html">Getting Started</a></li>
+<li><a href="configuration.html">Configuration</a></li>
+</ul></div>
+<div class="nav-group"><div class="nav-group-title">Reference</div><ul>
+<li><a href="reviewers.html">Reviewers</a></li>
+<li><a href="profiles.html">Profiles</a></li>
+<li><a href="architecture.html" class="active" aria-current="page">Architecture</a></li>
+<li><a href="benchmarks.html">Benchmarks</a></li>
+</ul></div>
+<div class="nav-group"><div class="nav-group-title">Project</div><ul>
+<li><a href="contributing.html">Contributing</a></li>
+<li><a href="faq.html">FAQ</a></li>
+<li><a href="glossary.html">Glossary</a></li>
+</ul></div>
+</nav>
+    </aside>
+
+    <main id="main" class="content">
+      <nav class="breadcrumb" aria-label="Breadcrumb"><a href="index.html">Home</a> <span class="sep">/</span> <span class="crumb-group">Reference</span> <span class="sep">/</span> <span class="crumb-cur">Architecture</span></nav>
+      <div class="page-head">
+        <h1>Architecture</h1>
+        <a class="md-link" href="https://github.com/jimstratus/argus/blob/master/DEVELOPMENT.md" target="_blank" rel="noopener" title="Open the source markdown on GitHub">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm2 7V10l2 2 2-2v4h2V9h-2l-2 2-2-2H7v5h2-2Zm10-1 2.5-3H17V8h-2v5h2v0Z"/></svg>
+          View DEVELOPMENT.md
+        </a>
+      </div>
+      <aside class="on-this-page" aria-label="On this page"><div class="otp-title">On this page</div><ul><li><a href="#pipeline">Pipeline overview</a></li>
+<li><a href="#dispatch">Dispatch pattern</a></li>
+<li><a href="#merge">Merge & corroboration</a></li>
+<li><a href="#host">Host-CLI awareness</a></li>
+<li><a href="#schema-db">history.db schema</a></li></ul></aside>
+      <article class="prose">
+        
+<p>Argus is a pipeline: resolve a roster, estimate cost, dispatch reviewers in parallel, then merge their
+findings into one review. The quality of the output comes from two ideas working together &mdash; a
+confidence threshold and a corroboration boost.</p>
+
+<h2 id="pipeline">Pipeline overview</h2>
+<div class="mermaid">
+flowchart LR
+  D[Diff / PR / files] --> R[Resolve roster<br/>profile + host rules]
+  R --> C[Estimate cost<br/>gate check]
+  C --> P[Dispatch reviewers<br/>in parallel]
+  P --> J[reviews/*.json<br/>strict schema]
+  J --> M[Merge:<br/>filter + corroborate + cluster]
+  M --> O[merged.md + metrics.json]
+  P --> H[(history.db)]
+  M --> H
+</div>
+
+<h2 id="dispatch">Dispatch pattern</h2>
+<p>The default dispatch is <strong>subagent-per-reviewer</strong>, capped at <strong>4 concurrent</strong>;
+the rest queue and launch as slots free up. Each subagent runs <code>dispatch.py</code>
+<em>synchronously</em> for exactly one reviewer and writes that reviewer&rsquo;s JSON. The legacy / quick
+path is a single-process <code>dispatch.py --roster a,b,c,d</code> for rosters of &le;4 reviewers. Either way,
+<code>merge.py</code> runs exactly once at the end.</p>
+<div class="mermaid">
+sequenceDiagram
+  participant O as Orchestrator
+  participant Q as Queue (cap 4)
+  participant S as Subagent (per reviewer)
+  participant F as reviews/*.json
+  O->>Q: enqueue all reviewers
+  loop up to 4 at a time
+    Q->>S: launch dispatch.py (one reviewer, sync)
+    S-->>F: write &lt;reviewer&gt;.json
+    S-->>Q: slot freed
+  end
+  Q-->>O: all reviewers done
+  O->>O: merge.py (runs once)
+</div>
+<div class="callout warn"><div class="ico">&#9888;</div><div>
+<strong>Subagents must run synchronously</strong><p>A subagent must run <code>dispatch.py</code> to
+completion before its session ends &mdash; never <code>run_in_background</code> inside the subagent.
+Otherwise the session ends first and the review JSON is never written.</p>
+</div></div>
+
+<h2 id="merge">Merge &amp; corroboration</h2>
+<p>The merge step is where a noisy panel becomes a clean review:</p>
+<ul>
+  <li><strong>Confidence threshold</strong> &mdash; drop findings with effective confidence below <strong>80</strong>.</li>
+  <li><strong>Corroboration boost</strong> &mdash; add <strong>+15</strong> confidence (capped at 100) when
+  <strong>&ge;2 reviewers</strong> flag the same file within <strong>&plusmn;3 lines</strong>.</li>
+  <li><strong>Anchor-based clustering</strong> &mdash; &plusmn;3-line proximity with dual tolerance (anchor
+  <em>and</em> cluster-max) to avoid chain drift; the reported line is the cluster median and the worst
+  severity wins.</li>
+</ul>
+<div class="mermaid">
+flowchart TD
+  A[All findings from all reviewers] --> B[Cluster by file + anchor +/-3 lines]
+  B --> C{>=2 reviewers in cluster?}
+  C -- yes --> D[+15 confidence boost, cap 100]
+  C -- no --> E[Keep base confidence]
+  D --> F{Effective confidence >= 80?}
+  E --> F
+  F -- no --> G[Drop finding]
+  F -- yes --> H[Emit: median line, worst severity]
+  H --> I[merged.md + metrics.json]
+</div>
+
+<h3 id="schema-json">Finding schema &amp; extraction</h3>
+<p>Every reviewer returns strict-schema JSON findings:</p>
+<pre><code>{ "file": "...", "line": 0, "severity": "...", "category": "...",
+  "description": "...", "confidence": 0 }</code></pre>
+<p>A tolerant extractor handles fenced code blocks, <code>&lt;think&gt;</code> reasoning prefixes (Qwen /
+DeepSeek-R1 style), and braces inside string values. Other safeguards: a context-window pre-check skips a
+reviewer if the prompt exceeds 70% of its context; an OpenRouter reasoning-exclude patch avoids providers
+returning <code>{content:null, reasoning:...}</code>; and failure isolation means one broken reviewer never
+kills the run (timeouts kill the whole process tree).</p>
+
+<h2 id="host">Host-CLI awareness</h2>
+<p>Argus inspects the environment and parent process tree to detect its host CLI, then applies per-host
+rules. The rule is simple: never ask a host CLI to review its own invocation, so the matching reviewer is
+always skipped. The <code>add</code> column applies to <strong>profile rosters only</strong>, not explicit
+<code>--custom</code> lists.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Host</th><th>Skip</th><th>Add</th></tr></thead>
+<tbody>
+<tr><td>claude</td><td>claude</td><td>&mdash;</td></tr>
+<tr><td>codex</td><td>codex</td><td>claude</td></tr>
+<tr><td>gemini</td><td>gemini</td><td>claude</td></tr>
+<tr><td>opencode</td><td>opencode</td><td>claude</td></tr>
+<tr><td>unknown</td><td>&mdash;</td><td>&mdash;</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="schema-db">history.db schema</h2>
+<p>Every run is logged to a local SQLite database (<code>history.db</code>) for stats and benchmarks.</p>
+<div class="mermaid">
+erDiagram
+  RUNS ||--o{ REVIEWER_RUNS : has
+  REVIEWER_RUNS ||--o{ FINDINGS : produces
+  BENCHMARKS ||--o{ REVIEWER_RUNS : scores
+  RUNS {
+    int id PK
+    text timestamp
+    text mode
+    text roster
+    real est_cost
+  }
+  REVIEWER_RUNS {
+    int id PK
+    int run_id FK
+    text reviewer
+    text route
+    real wall_sec
+    text status
+  }
+  FINDINGS {
+    int id PK
+    int reviewer_run_id FK
+    text file
+    int line
+    text severity
+    int confidence
+  }
+  BENCHMARKS {
+    int id PK
+    text timestamp
+    text fixture
+    real f1
+    real precision
+    real recall
+  }
+</div>
+
+      </article>
+      <footer class="page-footer">
+        <p>Argus &mdash; Multi-model code review, in parallel. &middot; <a href="https://github.com/jimstratus/argus" target="_blank" rel="noopener">GitHub</a> &middot; MIT License &middot; &copy; 2026</p>
+        <p class="muted">Named for Argus Panoptes, the hundred-eyed giant. <em>Given enough eyeballs, all bugs are shallow.</em></p>
+      </footer>
+    </main>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

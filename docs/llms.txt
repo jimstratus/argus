@@ -1,0 +1,27 @@
+# Argus
+
+> Multi-model code review, in parallel. Argus dispatches a git diff / PR / file set to a configurable roster of frontier LLM reviewers in parallel, filters findings by confidence with cross-reviewer corroboration, and produces one merged review. A benchmark mode scores reviewers against labeled fixtures to build a leaderboard. Named for Argus Panoptes, the hundred-eyed giant: given enough eyeballs, all bugs are shallow.
+
+Argus is a Claude Code skill (invoked as /argus) plus a set of standalone Python scripts. It is configured entirely through config.yaml and environment variables; API keys live only in the environment and are never written to disk.
+
+## Docs
+- [Home](https://jimstratus.github.io/argus/): Argus is a multi-model code-review CLI skill: it dispatches a diff to a roster of frontier LLM reviewers in parallel, filters by confidence with cross-reviewer corroboration, and produces one merged review.
+- [Getting Started](https://jimstratus.github.io/argus/getting-started.html): Onboarding for Argus: a beginner track (clone, one API key, verify, run /argus) and an advanced track (direct-API routing, profiles, parallel benchmarks, host-CLI awareness).
+- [Configuration](https://jimstratus.github.io/argus/configuration.html): How Argus is configured: config.yaml structure, the route_preference knob, environment variables, aichat clients, and cost gates.
+- [Reviewers](https://jimstratus.github.io/argus/reviewers.html): The Argus reviewer registry: 15 frontier LLM reviewers with their routes and notes, including the dual-route GLM-5.2, MiniMax M3, and DeepSeek V4 Pro.
+- [Profiles](https://jimstratus.github.io/argus/profiles.html): Argus profiles are named reviewer rosters: quick, standard (default), panel, security, deep, favorites, direct, and leaderboard-top5.
+- [Architecture](https://jimstratus.github.io/argus/architecture.html): How Argus works end to end: the review pipeline, subagent-per-reviewer dispatch, the merge / corroboration logic, host-CLI awareness, and the history.db schema.
+- [Benchmarks](https://jimstratus.github.io/argus/benchmarks.html): Argus benchmark mode scores each reviewer against labeled fixtures using precision, recall, and F1 to build a leaderboard, with a clean-baseline false-positive control.
+- [Contributing](https://jimstratus.github.io/argus/contributing.html): How to contribute to Argus: adding or changing reviewers and providers (config-only), contributing benchmark fixtures, running tests, and the don't-break rules.
+- [FAQ](https://jimstratus.github.io/argus/faq.html): Frequently asked questions about Argus: which models, which keys you need, OpenRouter vs direct API, privacy, Windows support, cost, and adding a reviewer.
+- [Glossary](https://jimstratus.github.io/argus/glossary.html): Definitions of Argus terms: reviewer, route, roster, profile, corroboration boost, confidence threshold, fixture, F1, host CLI, aichat, and overlay.
+
+## Source
+- [README](https://github.com/jimstratus/argus/blob/master/README.md): full human-facing overview
+- [SKILL.md](https://github.com/jimstratus/argus/blob/master/SKILL.md): the /argus skill definition
+- [config.yaml](https://github.com/jimstratus/argus/blob/master/config.yaml): reviewer registry, profiles, routing, cost gates
+- [CONTRIBUTING](https://github.com/jimstratus/argus/blob/master/CONTRIBUTING.md): contribution guide
+- [DEVELOPMENT](https://github.com/jimstratus/argus/blob/master/DEVELOPMENT.md): developer notes
+
+## Optional
+- [Repository](https://github.com/jimstratus/argus): GitHub source
