@@ -88,6 +88,26 @@ reviewers:
     primary:  { route: aichat, client: minimax,    model: "MiniMax-M3" }
     fallback: { route: aichat, client: openrouter, model: "minimax/minimax-m3" }
 
+  opencode-minimax-m3:
+    display: "MiniMax M3 via OpenCode (minimax coding plan)"
+    role: [correctness, code, agent]
+    ctx: 200000
+    tier: paid
+    privacy: ok
+    custom_only: true
+    cost_per_m: null   # opencode sub
+    primary: { route: opencode-cli, model: "minimax-coding-plan/MiniMax-M3" }
+
+  opencode-glm-5.2:
+    display: "GLM-5.2 via OpenCode (Ollama Cloud)"
+    role: [security, logic, code]
+    ctx: 131072
+    tier: paid
+    privacy: ok
+    custom_only: true
+    cost_per_m: null   # opencode sub
+    primary: { route: opencode-cli, model: "ollama-cloud/glm-5.2" }
+
   kimi-k2.6:
     display: "Kimi K2 (OR; k2.5 GA — k2.6 preview not yet on OR)"
     role: [long-context, agent, code]
