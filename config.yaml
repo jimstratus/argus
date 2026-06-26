@@ -73,6 +73,44 @@ reviewers:
     # content=null with reasoning-only on large prompts.
     fallback: { route: aichat, client: openrouter, model: "minimax/minimax-m2" }
 
+  minimax-m3:
+    display: "MiniMax M3 (direct minimax API)"
+    role: [correctness, code, agent]
+    ctx: 200000
+    tier: paid
+    privacy: ok
+    cost_per_m: { input: 0.30, output: 1.20 }
+    primary:  { route: aichat, client: minimax, model: "MiniMax-M3" }
+
+  glm-5.2:
+    display: "GLM-5.2 via Ollama Cloud (ollamacloud)"
+    role: [security, logic, code]
+    ctx: 131072
+    tier: paid
+    privacy: ok
+    cost_per_m: { input: 0.0, output: 0.0 }   # flat-rate ollama cloud sub
+    primary:  { route: aichat, client: ollama, model: "glm-5.2:cloud" }
+
+  opencode-minimax-m3:
+    display: "MiniMax M3 via OpenCode (minimax coding plan)"
+    role: [correctness, code, agent]
+    ctx: 200000
+    tier: paid
+    privacy: ok
+    custom_only: true
+    cost_per_m: null   # opencode sub
+    primary: { route: opencode-cli, model: "minimax-coding-plan/MiniMax-M3" }
+
+  opencode-glm-5.2:
+    display: "GLM-5.2 via OpenCode (Ollama Cloud)"
+    role: [security, logic, code]
+    ctx: 131072
+    tier: paid
+    privacy: ok
+    custom_only: true
+    cost_per_m: null   # opencode sub
+    primary: { route: opencode-cli, model: "ollama-cloud/glm-5.2" }
+
   kimi-k2.6:
     display: "Kimi K2 (OR; k2.5 GA — k2.6 preview not yet on OR)"
     role: [long-context, agent, code]
@@ -292,6 +330,10 @@ aichat_clients:
     type: openai-compatible
     api_base: https://inference-api.nousresearch.com/v1
     api_key_env: NOUSRESEARCH_API_KEY
+  ollama:
+    type: openai-compatible
+    api_base: http://localhost:11434/v1   # Ollama Cloud via local ollama; no key needed
+    api_key_env: OLLAMA_API_KEY
 
 # ─────────────────────────────────────────────────────────────────────
 # CLI invocation templates
