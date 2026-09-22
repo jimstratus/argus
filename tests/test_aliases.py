@@ -514,14 +514,17 @@ def _stats_rows(tmp_path, monkeypatch, capsys, rows):
     conn = _common.history_conn()
     conn.execute("INSERT INTO runs (run_id, ts, roster) "
                  "VALUES ('r1','2026-06-01T00:00:00+00:00','x')")
-    for reviewer, model in rows:
+    # Each row is (reviewer, model) or (reviewer, model, error).
+    for reviewer, model, *rest in rows:
+        error = rest[0] if rest else ""
         conn.execute(
             "INSERT INTO reviewer_runs (run_id,reviewer,latency_sec,n_findings,"
             "fallback_used,exit_code) VALUES ('r1',?,1.0,1,0,0)", (reviewer,))
         conn.execute(
             'INSERT INTO benchmarks (ts,reviewer,fixture,run_idx,"precision",'
-            'recall,f1,model) VALUES (?,?,?,?,?,?,?,?)',
-            ("20260601T000000", reviewer, "f", 0, 0.736, 0.639, 0.681, model))
+            'recall,f1,model,error) VALUES (?,?,?,?,?,?,?,?,?)',
+            ("20260601T000000", reviewer, "f", 0, 0.736, 0.639, 0.681,
+             model, error))
     conn.commit()
     conn.close()
 
@@ -939,6 +942,43 @@ def test_benchmark_records_the_model_that_actually_served_each_run():
         "the run must record the route that served it, not the one that "
         f"failed; got {d['model']!r}"
     )
+
+
+def test_stats_does_not_call_a_fresh_failed_run_a_pre_migration_row(
+        tmp_path, monkeypatch, capsys):
+    """An errored run records NULL because it served nothing, not because it is old.
+
+    Regression: once benchmark.py started writing NULL for wall-capped,
+    crashed and no-adapter runs, `stats.py` counted those as `unrecorded` for
+    any API-only reviewer — reporting that scores predate model recording for
+    a benchmark the current code had just written.
+    """
+    cfg = load_config()
+    # Premise: gemini-or is API-only, so the model-less-route exemption does
+    # not apply and this row reaches the branch under test.
+    assert all(r.get("model") for r in (cfg["reviewers"]["gemini-or"].get("primary"),
+                                        cfg["reviewers"]["gemini-or"].get("fallback"))
+               if r)
+
+    rows = _stats_rows(tmp_path, monkeypatch, capsys,
+                       [("gemini-or", None, "wall-cap exceeded")])
+    row = next(r for r in rows if r["reviewer"] == "gemini-or")
+    assert row["bench_model_unverified"] is False, (
+        "a run that errored served no model; NULL is the correct current "
+        "record, not evidence the row predates model recording"
+    )
+
+
+def test_stats_still_flags_a_succeeded_row_that_recorded_no_model(
+        tmp_path, monkeypatch, capsys):
+    """The marker must survive the exclusion above, or it stops meaning anything.
+
+    A SUCCEEDED run on an API-only reviewer that recorded no model really does
+    predate model recording — that is the case `?` exists for.
+    """
+    rows = _stats_rows(tmp_path, monkeypatch, capsys, [("gemini-or", None)])
+    row = next(r for r in rows if r["reviewer"] == "gemini-or")
+    assert row["bench_model_unverified"] is True
 
 
 if __name__ == "__main__":

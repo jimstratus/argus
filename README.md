@@ -245,8 +245,11 @@ opencode` — no Gemini) is the convenient roster to pair with
 
 > [!WARNING]
 > **These numbers are stale.** They were recorded before the 2026-09-22 model
-> refresh, when every reviewer pointed at an older model (and `mimo`'s slug had
-> since been delisted entirely). Reviewer names are shown **as-recorded**, which
+> refresh, when every **version-pinned** reviewer pointed at an older model (and
+> `mimo`'s slug had since been delisted entirely). `opencode` and `codex` are not
+> among them — they route through a CLI subscription with no pinned slug, so the
+> registry cannot say what model served those rows; their scores are stale for
+> the same reason, just unprovably so. Reviewer names are shown **as-recorded**, which
 > is why they still carry version suffixes — those keys went version-free in the
 > same pass and now resolve via `aliases:`. Re-run `--benchmark` before acting on
 > this ranking.

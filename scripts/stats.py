@@ -58,7 +58,8 @@ def main() -> int:
     # Benchmark F1
     cur.execute(f"""
         SELECT reviewer, AVG(f1) AS avg_f1, AVG("precision") AS avg_prec, AVG(recall) AS avg_rec,
-               COUNT(*) AS n, model
+               COUNT(*) AS n, model,
+               SUM(CASE WHEN COALESCE(error, '') != '' THEN 1 ELSE 0 END) AS errored
         FROM benchmarks
         {where}
         GROUP BY reviewer, model
@@ -67,7 +68,7 @@ def main() -> int:
     # bump, so scores have to be kept separable by the model that produced them.
     bench_raw = [
         {"reviewer": r[0], "f1": r[1], "prec": r[2], "rec": r[3], "n": r[4],
-         "model": r[5]}
+         "model": r[5], "errored": r[6] or 0}
         for r in cur.fetchall()
     ]
 
@@ -134,15 +135,21 @@ def main() -> int:
         if b["model"]:
             c["models"].add(b["model"])
         elif _current_models(canon) and not _has_modelless_route(canon):
-            # NULL here means the row predates model recording. That is only
-            # ambiguous when EVERY route carries a slug. codex and gemini have
-            # a model-less CLI primary alongside a modelled OpenRouter
-            # fallback, so a successful CLI run records NULL correctly — and
-            # testing the model set alone flagged those fresh rows as
-            # unverified. The cost of this is real but smaller: for such a
-            # reviewer a row that genuinely predates recording no longer earns
-            # the marker, because NULL cannot distinguish the two cases.
-            c["unrecorded"] += n
+            # NULL here means the row predates model recording — but only for
+            # a SUCCEEDED run. Two other cases produce a legitimate NULL:
+            #
+            #   * a run that errored (wall-cap, exception, no adapter) served
+            #     no model at all, and current code writes NULL for it. Those
+            #     rows are excluded here, or a fresh failed benchmark would be
+            #     reported as predating a migration it was written after.
+            #   * a reviewer with a model-less CLI route, whose successful runs
+            #     have no slug to record. Hence the branch condition.
+            #
+            # The cost of the second exclusion: for such a reviewer a row that
+            # genuinely predates recording no longer earns the marker, because
+            # NULL cannot distinguish the two cases. The first exclusion has no
+            # such cost — an errored row measured nothing either way.
+            c["unrecorded"] += n - (b["errored"] or 0)
         c["f1"] += (b["f1"] or 0) * n
         c["prec"] += (b["prec"] or 0) * n
         c["rec"] += (b["rec"] or 0) * n
