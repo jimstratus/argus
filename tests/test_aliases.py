@@ -220,6 +220,33 @@ def test_benchmark_snapshots_rates_into_new_artifacts():
     )
 
 
+def test_bench_cost_flags_cli_sub_that_fell_back_to_a_metered_route():
+    """A CLI sub that fell back to OpenRouter did not cost $0.
+
+    Regression: the artifact snapshot records the reviewer-level cost_per_m,
+    which is null for CLI-sub reviewers. But `_dispatch` falls back from a
+    failed CLI to the metered OpenRouter route, spending real money that
+    config.yaml has no price for. Reporting that run as a $0 "paid CLI sub"
+    under-reports spend exactly the way the original null-rate lookup did.
+    """
+    from bench_cost import rates_for
+    cfg = load_config()
+    _, _, status = rates_for(cfg, "codex", None, fallback_calls=2)
+    assert status == "mixed", "metered fallback on a CLI sub must not read as $0"
+    # No fallback: genuinely free, and must still say so.
+    _, _, clean = rates_for(cfg, "codex", None, fallback_calls=0)
+    assert clean == "cli-sub"
+
+
+def test_rates_for_docstring_lists_every_status_it_returns():
+    """The documented contract must match the values callers can receive."""
+    import bench_cost
+    doc = bench_cost.rates_for.__doc__ or ""
+    for status in ("recorded", "estimated", "mixed", "cli-sub", "unknown"):
+        assert f"'{status}'" in doc, f"status {status!r} missing from docstring"
+    assert "'metered'" not in doc, "docstring still lists the removed 'metered' status"
+
+
 def test_bench_cost_separates_unknown_from_free_cli():
     """$0 for a CLI sub and $0 for an unpriceable name must not look alike.
 

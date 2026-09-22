@@ -211,6 +211,11 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                 "exit_code": d.get("exit_code", 1),
                 "parse_error": d.get("parse_error", False),
                 "error": d.get("error"),
+                # Which route actually billed this call. A CLI-sub reviewer
+                # that fell back to its metered OpenRouter route spent real
+                # money, and the reviewer-level cost_per_m (null) does not
+                # say so.
+                "fallback_used": d.get("fallback_used", False),
                 **scored,
             })
             for f in d["findings"]:
@@ -232,6 +237,12 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
 
     nf = len(per_fixture) or 1
     await _log_progress(f"{name:<16} *** reviewer complete ({nf} fixtures × {runs} runs)")
+    # Route/billing snapshot for the artifact (see the comment on the dump).
+    _snap_primary, _snap_fb = resolve_routes(spec, preference)
+    _fallback_calls = sum(
+        1 for fr in per_fixture for r in fr["runs"] if r.get("fallback_used")
+    )
+
     # Incremental per-reviewer JSON (tailable) if ts provided
     if ts:
         try:
@@ -245,8 +256,18 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                     # artifact that records only a name cannot be costed
                     # accurately later — the registry it is read against is not
                     # the registry it ran under. bench_cost.py prefers these.
+                    #
+                    # `rates` is the PRIMARY route's price. That is not always
+                    # what billed: a CLI-sub reviewer (cost_per_m: null) whose
+                    # CLI failed falls back to a metered OpenRouter route and
+                    # spends real money. config.yaml carries one price per
+                    # reviewer, so the fallback's rate is not knowable here —
+                    # record the fallback usage instead so bench_cost.py can
+                    # say "mixed billing, not priced" rather than "$0".
                     "rates": spec.get("cost_per_m"),
-                    "model": (spec.get("primary") or {}).get("model"),
+                    "model": (_snap_primary or {}).get("model"),
+                    "fallback_route": (_snap_fb or {}).get("model"),
+                    "fallback_calls": _fallback_calls,
                     "recorded_at": ts,
                     "fixtures": per_fixture,
                 }, indent=2),

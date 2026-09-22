@@ -19,11 +19,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import load_config, estimate_tokens, canonical_reviewer, ARGUS_HOME
 
 
-def rates_for(cfg: dict, name: str, recorded: dict | None = None) -> tuple[str, dict | None, str]:
+def rates_for(cfg: dict, name: str, recorded: dict | None = None,
+              fallback_calls: int = 0) -> tuple[str, dict | None, str]:
     """Resolve a recorded benchmark reviewer name to its billing rates.
 
-    Returns (canonical_name, cost_per_m_or_None, status) where status is one of
-    'metered' | 'cli-sub' | 'unknown'.
+    Returns (canonical_name, cost_per_m_or_None, status) where status is one of:
+
+      'recorded'  rates came from the artifact — what the run was billed at
+      'estimated' rates came from the CURRENT registry; the artifact predates
+                  rate snapshotting, so this is today's price for an older run
+      'mixed'     a CLI-sub reviewer fell back to a metered route mid-run; real
+                  spend occurred that config.yaml has no price for
+      'cli-sub'   no per-token price, and no fallback was used — genuinely $0
+      'unknown'   not in this registry under any name; cannot be priced at all
 
     Benchmark artifacts are historical: their `reviewer` fields hold whatever
     the registry called that reviewer at record time, so a pre-2026-09-22 run
@@ -52,10 +60,20 @@ def rates_for(cfg: dict, name: str, recorded: dict | None = None) -> tuple[str, 
     if spec is None:
         return canonical, None, "unknown"
     rates = spec.get("cost_per_m")
-    # 'estimated' is deliberately distinct from 'recorded': same arithmetic,
-    # weaker claim. Artifacts written before rate snapshotting cannot be
-    # costed exactly, and saying so is better than quietly implying they can.
-    return canonical, rates, "estimated" if rates else "cli-sub"
+    if rates:
+        # 'estimated' is deliberately distinct from 'recorded': same
+        # arithmetic, weaker claim. Artifacts written before rate snapshotting
+        # cannot be costed exactly, and saying so is better than quietly
+        # implying they can.
+        return canonical, rates, "estimated"
+
+    # No per-token price. That means $0 only if the CLI sub actually served
+    # every call. If it fell back to a metered route, real money was spent and
+    # config.yaml has no rate for it — reporting $0 would under-report exactly
+    # the way the null-rate lookup used to.
+    if fallback_calls:
+        return canonical, None, "mixed"
+    return canonical, None, "cli-sub"
 
 
 def main() -> int:
@@ -85,7 +103,9 @@ def main() -> int:
         name = data.get("reviewer", p.stem)
         # Keep the recorded name for display — this is a historical artifact —
         # but price it through the canonical key.
-        canonical, rates, status = rates_for(cfg, name, data.get("rates"))
+        canonical, rates, status = rates_for(
+            cfg, name, data.get("rates"), int(data.get("fallback_calls") or 0)
+        )
         label = name if canonical == name else f"{name}\u2192{canonical}"
         total_calls = 0
         est_input = 0
@@ -114,9 +134,12 @@ def main() -> int:
                 "reviewer": label,
                 "calls": total_calls,
                 "cost_usd": 0.0,
-                "note": ("paid CLI sub (no per-token cost)" if status == "cli-sub"
-                         else "UNKNOWN reviewer - NOT priced"),
-                "unpriced": status == "unknown",
+                "note": {
+                    "cli-sub": "paid CLI sub (no per-token cost)",
+                    "mixed": (f"MIXED billing - {data.get('fallback_calls')} "
+                              "metered fallback call(s), NOT priced"),
+                }.get(status, "UNKNOWN reviewer - NOT priced"),
+                "unpriced": status in ("unknown", "mixed"),
             })
 
     rows.sort(key=lambda r: -r.get("cost_usd", 0))
@@ -172,7 +195,7 @@ def main() -> int:
         # Never let an unpriceable reviewer vanish into a total that reads as
         # complete: say so, and fail, rather than under-reporting in silence.
         sys.stderr.write(
-            "WARNING: not in registry, excluded from the total: "
+            "WARNING: could not be priced, excluded from the total: "
             f"{', '.join(unpriced)}\n"
             "The TOTAL above is therefore a LOWER BOUND, not the run cost.\n"
         )
