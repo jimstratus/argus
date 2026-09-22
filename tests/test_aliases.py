@@ -136,6 +136,36 @@ def test_shipped_config_routes_are_wired():
                 assert route.get("client") in clients, f"{name}.{slot}: bad client"
 
 
+def test_bench_cost_prices_legacy_reviewer_names():
+    """Historical benchmark artifacts must still price correctly.
+
+    Regression: bench_cost.py reads reviewer names from benchmark artifacts on
+    disk, which is the one path that never goes through resolve_roster. A
+    pre-rename run carries `glm-5.2`; a direct registry lookup missed, rates
+    came back None, and the row printed as a $0 "paid CLI sub" — silently
+    understating what the run cost.
+    """
+    from bench_cost import rates_for
+    cfg = load_config()
+    for legacy in ("glm-5.2", "kimi-k2.6", "qwen-3.6-plus"):
+        canonical, rates, status = rates_for(cfg, legacy)
+        assert status == "metered", f"{legacy} priced as {status}"
+        assert rates and rates["input"] > 0, f"{legacy} resolved to no rates"
+
+
+def test_bench_cost_separates_unknown_from_free_cli():
+    """$0 for a CLI sub and $0 for an unpriceable name must not look alike.
+
+    Both cost nothing in the report, but the first is a real price and the
+    second is a missing one. Collapsing them is how a reviewer disappears into
+    a total that reads as complete.
+    """
+    from bench_cost import rates_for
+    cfg = load_config()
+    assert rates_for(cfg, "codex")[2] == "cli-sub"
+    assert rates_for(cfg, "no-such-reviewer-anywhere")[2] == "unknown"
+
+
 def test_docs_registry_table_lists_every_reviewer():
     """The generated reviewer table must cover the whole registry.
 

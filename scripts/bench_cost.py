@@ -16,7 +16,33 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import load_config, estimate_tokens, ARGUS_HOME
+from _common import load_config, estimate_tokens, canonical_reviewer, ARGUS_HOME
+
+
+def rates_for(cfg: dict, name: str) -> tuple[str, dict | None, str]:
+    """Resolve a recorded benchmark reviewer name to its billing rates.
+
+    Returns (canonical_name, cost_per_m_or_None, status) where status is one of
+    'metered' | 'cli-sub' | 'unknown'.
+
+    Benchmark artifacts are historical: their `reviewer` fields hold whatever
+    the registry called that reviewer at record time, so a pre-2026-09-22 run
+    carries version-named keys like `glm-5.2`. Those are not registry keys any
+    more, so a direct lookup misses, `cost_per_m` comes back None, and the row
+    would be printed as a $0 paid-CLI subscription — silently understating what
+    the run actually cost. Hence the alias resolution here.
+
+    'cli-sub' and 'unknown' both cost $0 but mean opposite things: the first is
+    a reviewer that genuinely has no per-token price, the second is a name this
+    registry cannot price at all. Collapsing them is how a missing reviewer
+    disappears into a total that looks complete.
+    """
+    canonical = canonical_reviewer(cfg, name)
+    spec = cfg["reviewers"].get(canonical)
+    if spec is None:
+        return canonical, None, "unknown"
+    rates = spec.get("cost_per_m")
+    return canonical, rates, "metered" if rates else "cli-sub"
 
 
 def main() -> int:
@@ -44,8 +70,10 @@ def main() -> int:
     for p in sorted(per_dir.glob("*.json")):
         data = json.loads(p.read_text(encoding="utf-8"))
         name = data.get("reviewer", p.stem)
-        spec = cfg["reviewers"].get(name, {})
-        rates = spec.get("cost_per_m")
+        # Keep the recorded name for display — this is a historical artifact —
+        # but price it through the canonical key.
+        canonical, rates, status = rates_for(cfg, name)
+        label = name if canonical == name else f"{name}\u2192{canonical}"
         total_calls = 0
         est_input = 0
         est_output = 0
@@ -58,7 +86,7 @@ def main() -> int:
         if rates:
             cost = (est_input / 1_000_000) * rates["input"] + (est_output / 1_000_000) * rates["output"]
             rows.append({
-                "reviewer": name,
+                "reviewer": label,
                 "calls": total_calls,
                 "in_tokens": est_input,
                 "out_tokens": est_output,
@@ -68,10 +96,12 @@ def main() -> int:
             total += cost
         else:
             rows.append({
-                "reviewer": name,
+                "reviewer": label,
                 "calls": total_calls,
                 "cost_usd": 0.0,
-                "note": "paid CLI sub (no per-token cost)",
+                "note": ("paid CLI sub (no per-token cost)" if status == "cli-sub"
+                         else "UNKNOWN reviewer - NOT priced"),
+                "unpriced": status == "unknown",
             })
 
     rows.sort(key=lambda r: -r.get("cost_usd", 0))
@@ -90,6 +120,17 @@ def main() -> int:
             print(f"{r['reviewer']:<18} {calls:>5} {intok:>8} {outtok:>8} {rate:<15} {cost:>10.4f}")
     print("-" * 75)
     print(f"{'TOTAL':<18} {'':>5} {'':>8} {'':>8} {'':<15} {total:>10.4f}")
+
+    unpriced = [r["reviewer"] for r in rows if r.get("unpriced")]
+    if unpriced:
+        # Never let an unpriceable reviewer vanish into a total that reads as
+        # complete: say so, and fail, rather than under-reporting in silence.
+        sys.stderr.write(
+            "WARNING: not in registry, excluded from the total: "
+            f"{', '.join(unpriced)}\n"
+            "The TOTAL above is therefore a LOWER BOUND, not the run cost.\n"
+        )
+        return 1
     return 0
 
 
