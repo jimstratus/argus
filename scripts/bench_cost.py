@@ -28,8 +28,10 @@ def rates_for(cfg: dict, name: str, recorded: dict | None = None,
       'recorded'  rates came from the artifact — what the run was billed at
       'estimated' rates came from the CURRENT registry; the artifact predates
                   rate snapshotting, so this is today's price for an older run
-      'mixed'     a CLI-sub reviewer fell back to a metered route mid-run; real
-                  spend occurred that config.yaml has no price for
+      'mixed'     some calls were served by the FALLBACK route, whose price
+                  config.yaml does not carry (it stores one rate per reviewer,
+                  the primary's). Returned rates price the primary-served
+                  calls only; the fallback calls cannot be priced at all
       'cli-sub'   no per-token price, and no fallback was used — genuinely $0
       'unknown'   not in this registry under any name; cannot be priced at all
 
@@ -46,33 +48,36 @@ def rates_for(cfg: dict, name: str, recorded: dict | None = None,
     disappears into a total that looks complete.
     """
     canonical = canonical_reviewer(cfg, name)
-
-    # Rates recorded in the artifact win: they are what the run was actually
-    # billed at. Anything else is the CURRENT registry's price for a run that
-    # happened under a different one, which is a different number wearing the
-    # same label. qwen-3.6-plus ran at $0.50/$2.00; today's `qwen` is
-    # qwen3.8-max at $2.00/$6.00 — pricing the old run at the new rate is
-    # wrong by 4x, in the opposite direction from the $0 it used to report.
-    if recorded:
-        return canonical, recorded, "recorded"
-
     spec = cfg["reviewers"].get(canonical)
     if spec is None:
         return canonical, None, "unknown"
-    rates = spec.get("cost_per_m")
+
+    # Rates recorded in the artifact win over the registry: they are what the
+    # run was actually billed at. qwen-3.6-plus ran at $0.50/$2.00; today's
+    # `qwen` is qwen3.8-max at $2.00/$6.00 — pricing the old run at the new
+    # rate is wrong by 4x, in the opposite direction from the $0 it used to
+    # report.
+    rates = recorded or spec.get("cost_per_m")
+
+    # Fallback is checked BEFORE the rate source, because no rate in hand
+    # describes a fallback call. config.yaml carries one price per reviewer —
+    # the PRIMARY's — so a `kimi` run that fell back bills those calls at
+    # kimi-k3's $3/$15 when kimi-k2.7-code served them at $0.71/$3.21.
+    # Returning 'recorded' there would label a wrong number exact.
+    #
+    # `rates` still comes back non-None so the caller can price the calls the
+    # primary DID serve; only the fallback calls are unpriceable.
+    if fallback_calls:
+        return canonical, rates, "mixed"
+
+    if recorded:
+        return canonical, recorded, "recorded"
     if rates:
         # 'estimated' is deliberately distinct from 'recorded': same
         # arithmetic, weaker claim. Artifacts written before rate snapshotting
         # cannot be costed exactly, and saying so is better than quietly
         # implying they can.
         return canonical, rates, "estimated"
-
-    # No per-token price. That means $0 only if the CLI sub actually served
-    # every call. If it fell back to a metered route, real money was spent and
-    # config.yaml has no rate for it — reporting $0 would under-report exactly
-    # the way the null-rate lookup used to.
-    if fallback_calls:
-        return canonical, None, "mixed"
     return canonical, None, "cli-sub"
 
 
@@ -110,12 +115,19 @@ def main() -> int:
         total_calls = 0
         est_input = 0
         est_output = 0
+        fb_calls = 0
         for fr in data.get("fixtures", []):
             in_per = fixture_tokens.get(fr["fixture"], prompt_overhead + 400)
-            calls = len(fr.get("runs", []))
-            total_calls += calls
-            est_input += calls * in_per
-            est_output += calls * out_tokens
+            runs = fr.get("runs", [])
+            total_calls += len(runs)
+            # Only the primary-served calls are priceable: the fallback route's
+            # rate is not in config. Pricing the whole row at the primary rate
+            # is what made a fallback look exact; dropping the whole row would
+            # throw away the calls we CAN price.
+            priced = [r for r in runs if not r.get("fallback_used")]
+            fb_calls += len(runs) - len(priced)
+            est_input += len(priced) * in_per
+            est_output += len(priced) * out_tokens
         if rates:
             cost = (est_input / 1_000_000) * rates["input"] + (est_output / 1_000_000) * rates["output"]
             rows.append({
@@ -125,8 +137,10 @@ def main() -> int:
                 "out_tokens": est_output,
                 "cost_usd": round(cost, 4),
                 "rate": (f"${rates['input']}/${rates['output']}"
-                         + ("" if status == "recorded" else "  (current rate)")),
+                         + {"estimated": "  (current rate)",
+                            "mixed": f"  ({fb_calls} fallback NOT priced)"}.get(status, "")),
                 "estimated": status == "estimated",
+                "unpriced": status == "mixed",
             })
             total += cost
         else:
@@ -136,8 +150,8 @@ def main() -> int:
                 "cost_usd": 0.0,
                 "note": {
                     "cli-sub": "paid CLI sub (no per-token cost)",
-                    "mixed": (f"MIXED billing - {data.get('fallback_calls')} "
-                              "metered fallback call(s), NOT priced"),
+                    "mixed": (f"MIXED billing - {fb_calls} of {total_calls} "
+                              "call(s) via fallback, NOT priced"),
                 }.get(status, "UNKNOWN reviewer - NOT priced"),
                 "unpriced": status in ("unknown", "mixed"),
             })

@@ -238,6 +238,31 @@ def test_bench_cost_flags_cli_sub_that_fell_back_to_a_metered_route():
     assert clean == "cli-sub"
 
 
+def test_fallback_outranks_the_rate_source():
+    """A recorded rate must not label a fallback call exact.
+
+    Regression: `rates_for` returned 'recorded' before checking
+    fallback_calls, so a metered reviewer that fell back had those calls
+    billed at the PRIMARY's rate and marked exact. `kimi` is the live case:
+    primary kimi-k3 at $3/$15, fallback kimi-k2.7-code at $0.71/$3.21 — a
+    price config.yaml does not carry, because it stores one rate per
+    reviewer. The earlier fix only guarded the cli-sub path.
+    """
+    from bench_cost import rates_for
+    cfg = load_config()
+    recorded = {"input": 3.00, "output": 15.00}
+    _, rates, status = rates_for(cfg, "kimi", recorded, fallback_calls=2)
+    assert status == "mixed", (
+        "a metered reviewer that fell back must not claim 'recorded'"
+    )
+    # Rates still come back so the caller can price the primary-served calls;
+    # only the fallback ones are unpriceable.
+    assert rates == recorded
+
+    # Without a fallback, the recorded rate is exact and should say so.
+    assert rates_for(cfg, "kimi", recorded, fallback_calls=0)[2] == "recorded"
+
+
 def test_rates_for_docstring_lists_every_status_it_returns():
     """The documented contract must match the values callers can receive."""
     import bench_cost
