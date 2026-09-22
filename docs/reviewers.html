@@ -109,7 +109,7 @@ and CLI-provider slugs are <em>not</em> covered, because that API cannot see the
 <tr><td><code>opencode-minimax</code></td><td>OpenCode CLI &rarr; <code>minimax-coding-plan/MiniMax-M3</code></td><td><span class="badge gray">custom-only</span> MiniMax M3 billed to the OpenCode sub instead of the metered API.</td></tr>
 <tr><td><code>opencode-glm</code></td><td>OpenCode CLI &rarr; <code>ollama-cloud/glm-5.2</code></td><td><span class="badge gray">custom-only</span> Still on 5.2 &mdash; the Ollama Cloud catalog is not visible from the OpenRouter API, so <code>glm-5.3</code> there is unverified and this route has no fallback.</td></tr>
 <tr><td><code>gemini</code></td><td>Gemini CLI (paid sub)</td><td><span class="badge red">disabled</span> Windows .cmd tree-kill re-test pending; use <code>gemini-or</code> meanwhile.</td></tr>
-<tr><td><code>gemini-or</code></td><td>OpenRouter (<code>google/gemini-3.8-flash</code>)</td><td>~2s/call, best value.</td></tr>
+<tr><td><code>gemini-or</code></td><td>OpenRouter (<code>google/gemini-3.8-flash</code>)</td><td>Flash tier. <strong>Not benchmarked</strong> &mdash; the &ldquo;~2s/call, best value&rdquo; figure measured 2.5&nbsp;Flash.</td></tr>
 <tr><td><code>codex</code></td><td>Codex CLI (paid sub, GPT-5.x)</td><td>Thorough, slow; OpenRouter fallback.</td></tr>
 <tr><td><code>claude</code></td><td>Claude CLI (paid sub)</td><td>Auto-added to profile rosters when host &ne; claude.</td></tr>
 <tr><td><code>opencode</code></td><td>OpenCode CLI (paid sub)</td><td>Top benchmark performer, slow cold start.</td></tr>

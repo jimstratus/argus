@@ -281,8 +281,11 @@ reviewers:
     privacy: ok
     cost_per_m: { input: 0.75, output: 3.75 }
     # Was google/gemini-2.5-flash. 3.8-flash is 2.5x the input cost but
-    # three generations newer; 2.5-flash remains selectable via --custom
-    # if the bench says the delta isn't worth it.
+    # three generations newer, and is NOT yet benchmarked — the "~2s/call,
+    # best value" note this entry used to carry measured 2.5 Flash.
+    # To go back, add a registry entry for the old slug (there is no alias
+    # for it, and --custom takes reviewer KEYS, not model slugs, so it
+    # cannot select an unregistered model).
     primary:  { route: aichat, client: openrouter, model: "google/gemini-3.8-flash" }
 
   codex:

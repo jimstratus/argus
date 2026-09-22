@@ -441,6 +441,57 @@ def test_catalog_validation_claim_is_scoped_everywhere():
     )
 
 
+def test_stats_canonicalizes_history_reviewer_names():
+    """history.db rows written before the rename must merge with new ones.
+
+    Regression: stats.py grouped `reviewer_runs` by the raw stored name and
+    keyed benchmark metrics the same way, so a reviewer that ran as `glm-5.2`
+    before 2026-09-22 and `glm` after appeared as two reviewers, and the old
+    benchmark F1 never attached to the canonical name. That is precisely the
+    history continuity the alias map exists to preserve.
+
+    This was the fourth reader of reviewer names outside `resolve_roster`,
+    and the one an earlier sweep missed because it reads the DB rather than
+    `cfg["reviewers"]`.
+    """
+    src = (Path(__file__).resolve().parent.parent
+           / "scripts" / "stats.py").read_text(encoding="utf-8")
+    assert "canonical_reviewer" in src, (
+        "stats.py must canonicalize names read from history.db"
+    )
+    # Averages must be re-derived from run-weighted totals, not averaged again.
+    assert "lat_total" in src and "m[\"runs\"]" in src, (
+        "merged rows must recompute averages from totals, not average averages"
+    )
+
+
+def test_no_unattributed_benchmark_claims_on_unbenchmarked_models():
+    """A measurement must name the model it measured.
+
+    Regression: the `gemini-or` row carried "~2s/call, best value" from the
+    2.5-Flash benchmark after the entry was repointed at 3.8 Flash, which
+    this PR never benchmarked — presenting one model's numbers as another's
+    properties, in three places plus the generated page.
+    """
+    import re
+    root = Path(__file__).resolve().parent.parent
+    offenders = []
+    for rel in ("README.md", "config.yaml", "docs/build_content.py",
+                "docs/reviewers.html"):
+        f = root / rel
+        if not f.exists():
+            continue
+        text = re.sub(r"\s+", " ", f.read_text(encoding="utf-8"))
+        for m in re.finditer(r"best value", text):
+            window = text[max(0, m.start() - 260):m.start() + 60]
+            # Acceptable only when the window says which model it measured.
+            if not re.search(r"2\.5(&nbsp;|\s)?Flash|2\.5-flash", window, re.I):
+                offenders.append(rel)
+    assert not offenders, (
+        f"unattributed benchmark claim on an unbenchmarked model in: {offenders}"
+    )
+
+
 def test_docs_registry_table_lists_every_reviewer():
     """The generated reviewer table must cover the whole registry.
 

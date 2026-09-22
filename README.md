@@ -138,7 +138,7 @@ OpenRouter route; which one is tried first is governed by
 | `grok` | aichat → OR `x-ai/grok-4.7` | current xAI flagship, 500K ctx |
 | `grok-longctx` | aichat → OR `x-ai/grok-4.20` | the only **2M**-ctx reviewer; kept because every newer Grok has a smaller window. Not in any shipped profile — name it explicitly |
 | `deepseek-v3.2` | aichat → OR `deepseek/deepseek-v3.2` | **custom-only** — superseded by `deepseek` |
-| `gemini-or` | aichat → OR `google/gemini-3.8-flash` | 2s/call, best value |
+| `gemini-or` | aichat → OR `google/gemini-3.8-flash` | Flash tier; **not benchmarked** — the ~2s/call figure was 2.5 Flash |
 | `gemini` | `gemini` CLI (paid sub) | disabled pending Windows re-test of the tree-kill fix |
 | `codex` | `codex` CLI (paid sub) | GPT-5.x, thorough, slow |
 | `claude` | `claude` CLI (paid sub) | auto-added to **profile** rosters when host ≠ claude |
@@ -273,9 +273,11 @@ xychart-beta
     bar [0.811, 0.761, 0.697, 0.681, 0.674, 0.652, 0.581, 0.572, 0.557, 0.551, 0.505]
 ```
 
-Speed is a separate axis — `gemini-or` and `grok-longctx` answer in ~2s while
-`kimi` takes ~83s for a *lower* F1; cost/latency/quality trade-offs are
-yours to pick per profile.
+Speed is a separate axis. **In that historical run** `gemini-or` (then 2.5
+Flash) and `grok-longctx` answered in ~2s while `kimi` (then K2.6) took ~83s
+for a *lower* F1. Those reviewers now point at different models and have not
+been re-measured, so treat the shape of the trade-off as the lesson, not the
+numbers.
 
 Your numbers will differ. Run `--benchmark` on your fixtures. Failed or
 unparseable reviewer calls are zero-scored — a broken reviewer can't climb
