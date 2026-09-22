@@ -168,8 +168,12 @@ only 2M-ctx reviewer in the registry — that is the whole reason it survives a
 "newest flagship everywhere" pass.
 
 ### Model currency
-All model IDs / ctx / `cost_per_m` were verified against the live OpenRouter
-catalog (`GET https://openrouter.ai/api/v1/models`) on 2026-09-22. `mimo` had
+**OpenRouter-routed** model IDs / ctx / `cost_per_m` were verified against the
+live catalog (`GET https://openrouter.ai/api/v1/models`) on 2026-09-22. This
+does **not** cover direct-provider slugs (zai, minimax, deepseek, nous) or
+CLI-provider slugs (`minimax-coding-plan/…`, `ollama-cloud/…`, copilot) —
+that API cannot see them, which is why `opencode-glm` is deliberately still
+on glm-5.2. `mimo` had
 been pointing at a **delisted** slug (`xiaomi/mimo-v2-pro`) and was silently
 dead. Re-verify pins by diffing `config.yaml` against the live catalog
 (`curl -s https://openrouter.ai/api/v1/models`) before trusting a benchmark.

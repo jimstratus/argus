@@ -293,6 +293,45 @@ def test_every_documented_historical_name_is_priceable():
     )
 
 
+# Files that state what the 2026-09-22 catalog check covered. The claim is
+# only true of OpenRouter-routed pins; direct-provider and CLI-provider slugs
+# are invisible to that API.
+CATALOG_CLAIM_FILES = [
+    "config.yaml", "README.md", "CLAUDE.md",
+    "docs/build_content.py", "docs/reviewers.html",
+]
+
+
+def test_catalog_validation_claim_is_scoped_everywhere():
+    """No file may claim the catalog check covered every pin.
+
+    Regression: the claim was scoped in config.yaml but left blanket in
+    CLAUDE.md, README.md and the docs generator — three copies of a
+    validation guarantee the project cannot make. `opencode-glm` is the
+    standing counter-example: deliberately unbumped *because* its catalog
+    is not visible from the OpenRouter API.
+    """
+    import re
+    root = Path(__file__).resolve().parent.parent
+    unscoped = []
+    for rel in CATALOG_CLAIM_FILES:
+        f = root / rel
+        if not f.exists():
+            continue
+        text = re.sub(r"\s+", " ", f.read_text(encoding="utf-8"))
+        idx = text.find("were verified against")
+        if idx < 0:
+            continue
+        window = text[max(0, idx - 120):idx]
+        if not re.search(r"OpenRouter-routed|OPENROUTER-ROUTED|client: openrouter",
+                         window, re.I):
+            unscoped.append(rel)
+    assert not unscoped, (
+        "catalog-validation claim is not scoped to OpenRouter-routed pins in: "
+        f"{unscoped}"
+    )
+
+
 def test_docs_registry_table_lists_every_reviewer():
     """The generated reviewer table must cover the whole registry.
 

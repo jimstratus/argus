@@ -834,8 +834,10 @@ PAGES["reviewers"] = {
 <a href="configuration.html#routing">routing preference</a> (the custom-only <code>hermes</code> is
 dual-route too); the rest are single-route API reviewers or paid-CLI reviewers. Model versions are the headline of this
 release: <strong>GLM&#8209;5.3</strong>, <strong>MiniMax&nbsp;M3</strong>, and the new default
-<strong>DeepSeek&nbsp;V4&nbsp;Pro&nbsp;0813</strong>. All model IDs, context lengths and prices were verified
-against the live OpenRouter catalog on <strong>2026&#8209;09&#8209;22</strong>.</p>
+<strong>DeepSeek&nbsp;V4&nbsp;Pro&nbsp;0813</strong>. <strong>OpenRouter-routed</strong> model IDs, context
+lengths and prices were verified against the live catalog on <strong>2026&#8209;09&#8209;22</strong>; direct-provider
+and CLI-provider slugs are <em>not</em> covered, because that API cannot see them &mdash; which is why
+<code>opencode-glm</code> is still on <code>glm-5.2</code>.</p>
 
 <div class="table-wrap"><table>
 <thead><tr><th>Reviewer</th><th>Route(s)</th><th>Notes</th></tr></thead>
