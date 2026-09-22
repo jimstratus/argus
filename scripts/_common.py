@@ -541,14 +541,17 @@ CREATE TABLE IF NOT EXISTS benchmarks (
     --   1. the row predates this column        -> unrecorded, NOT "same"
     --   2. no route served it                  -> wall-cap, crash, both
     --      routes down, or no adapter. `error` is non-empty for these.
-    --   3. a model-less CLI route succeeded    -> a CLI route carries no
-    --      slug, so NULL is simply accurate and current.
+    --   3. a route with no `model` field succeeded -> there is no slug to
+    --      record, so NULL is simply accurate and current.
     --
-    -- (3) is a property of the ROUTE, not of the reviewer. codex and gemini
-    -- pair a model-less CLI primary with a modelled OpenRouter fallback, so
-    -- the same reviewer writes NULL when the CLI served and a slug when the
-    -- fallback did. Only claude and opencode are model-less on every route
-    -- today, and that is a fact about the current registry, not a rule.
+    -- (3) is a property of the ROUTE, not of the reviewer, and not of "being
+    -- a CLI" either. opencode and opencode-glm both use `opencode-cli`, and
+    -- only the first is model-less; copilot-cli takes --model too. codex and
+    -- gemini pair a model-less CLI primary with a modelled OpenRouter
+    -- fallback, so the same reviewer writes NULL when the CLI served and a
+    -- slug when the fallback did. Only claude and opencode are model-less on
+    -- every route today; that is a fact about the current registry, not a
+    -- rule. The only reliable test is whether the route dict has `model`.
     --
     -- Distinguishing 1 from 2 needs `error`; 1 from 3 needs the registry --
     -- specifically whether ANY of the reviewer's routes is model-less.
