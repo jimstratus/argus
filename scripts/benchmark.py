@@ -177,7 +177,14 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
         "primary_exit_code": primary_exit,
         "primary_error": primary_err,
         "parse_error": parse_error,
-        "error": (r.get("stderr") or "")[:200] if r["exit_code"] != 0 else None,
+        # Never an EMPTY string for a failure. _write_history stores this
+        # column verbatim, and stats.py distinguishes "this run errored" from
+        # "this row predates model recording" by whether it is non-empty — so
+        # a route that exits non-zero with nothing on stderr would otherwise
+        # be filed as a successful legacy row and earn a false `?` marker.
+        "error": (((r.get("stderr") or "").strip()[:200]
+                   or f"exit {r['exit_code']} with no stderr")
+                  if r["exit_code"] != 0 else None),
     }
 
 

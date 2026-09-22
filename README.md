@@ -244,27 +244,37 @@ opencode` — no Gemini) is the convenient roster to pair with
 4 fixtures × 3 runs = 12 calls per reviewer. Total spend **~$0.42**.
 
 > [!WARNING]
-> **These numbers are stale.** They were recorded before the 2026-09-22 model
-> refresh, when every **version-pinned** reviewer pointed at an older model (and
-> `mimo`'s slug had since been delisted entirely). `opencode` and `codex` are not
-> among them — they route through a CLI subscription with no pinned slug, so the
-> registry cannot say what model served those rows; their scores are stale for
-> the same reason, just unprovably so. Reviewer names are shown **as-recorded**, which
-> is why they still carry version suffixes — those keys went version-free in the
-> same pass and now resolve via `aliases:`. Re-run `--benchmark` before acting on
-> this ranking.
+> **These numbers predate the 2026-09-22 model refresh** — but the rows are not
+> all stale in the same way, so the `Now` column says which is which:
+>
+> - **Repointed — genuinely stale.** `qwen`, `glm`, `gemini-or`, `minimax`,
+>   `mimo`, `hermes`, `kimi` now run newer models (and `mimo`'s old slug had
+>   been delisted entirely). These numbers measure something the reviewer no
+>   longer is.
+> - **Renamed only — same model.** `grok-4.20` is now keyed `grok-longctx` and
+>   still runs `x-ai/grok-4.20`. The key moved; the model did not.
+> - **Unchanged.** `deepseek-v3.2` is still its own registry entry on the same
+>   slug. It was *not* replaced by `deepseek`, which is a separate reviewer.
+> - **Unverifiable.** `opencode` and `codex` route through a CLI subscription
+>   with no pinned slug, so nothing records what served them that day. Almost
+>   certainly stale, but this repo cannot demonstrate it.
+>
+> Reviewer names are shown **as-recorded**, which is why they still carry
+> version suffixes — those keys went version-free in the same pass and now
+> resolve via `aliases:`. Re-run `--benchmark` before acting on this ranking
+> either way.
 
 | Rank | Reviewer (as recorded) | Now | F1 | Precision | Recall | Avg call (s) |
 |---|---|---|---:|---:|---:|---:|
-| 🥇 | `opencode` | `opencode` | 0.811 | 0.896 | 0.754 | 48 |
+| 🥇 | `opencode` | `opencode` (slug unrecorded) | 0.811 | 0.896 | 0.754 | 48 |
 | 🥈 | `qwen-3.6-plus` | `qwen` (3.8-Max) | 0.761 | **1.000** | 0.650 | 76 |
 | 🥉 | `glm-5.1` | `glm` (5.3) | 0.697 | 0.772 | 0.725 | 27 |
 | 4 | `gemini-or` (2.5 Flash) | `gemini-or` (3.8 Flash) | 0.681 | 0.736 | 0.639 | **2** |
 | 5 | `minimax-m2.7` | `minimax` (M3) | 0.674 | 0.875 | 0.588 | 29 |
 | 6 | `mimo-v2-pro` | `mimo` (V2.6-Pro) | 0.652 | 0.736 | 0.600 | 49 |
-| 7 | `codex` | `codex` | 0.581 | 0.688 | 0.754 | 60 |
-| 8 | `deepseek-v3.2` | `deepseek` (V4-Pro-0813) | 0.572 | 0.778 | 0.494 | 6 |
-| 9 | `grok-4.20` | `grok-longctx` | 0.557 | 0.592 | 0.533 | **2** |
+| 7 | `codex` | `codex` (slug unrecorded) | 0.581 | 0.688 | 0.754 | 60 |
+| 8 | `deepseek-v3.2` | `deepseek-v3.2` (unchanged) | 0.572 | 0.778 | 0.494 | 6 |
+| 9 | `grok-4.20` | `grok-longctx` (same model) | 0.557 | 0.592 | 0.533 | **2** |
 | 10 | `hermes-4.3` | `hermes` (Hermes 4) | 0.551 | 0.646 | 0.653 | 13 |
 | 11 | `kimi-k2.6` | `kimi` (K3) | 0.505 | 0.729 | 0.575 | 83 |
 

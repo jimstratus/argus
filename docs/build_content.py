@@ -1114,19 +1114,19 @@ control: it contains no real bug, so the correct output is zero findings.</p>
 <h2 id="leaderboard">Reference leaderboard</h2>
 <p>F1 score by reviewer, from the reference benchmark run. The chart re-themes with light / dark mode.</p>
 <div class="chart-wrap" style="height:360px">
-  <canvas id="bench-chart" data-bench='[["opencode",0.811],["qwen-3.6-plus",0.761],["glm-5.x",0.697],["gemini-or",0.681],["minimax",0.674],["mimo-v2-pro",0.652],["codex",0.581],["deepseek",0.572],["grok-4.20",0.557],["hermes-4.3",0.551],["kimi-k2.6",0.505]]'></canvas>
+  <canvas id="bench-chart" data-bench='[["opencode",0.811],["qwen-3.6-plus",0.761],["glm-5.1",0.697],["gemini-or (2.5 Flash)",0.681],["minimax-m2.7",0.674],["mimo-v2-pro",0.652],["codex",0.581],["deepseek-v3.2",0.572],["grok-4.20",0.557],["hermes-4.3",0.551],["kimi-k2.6",0.505]]'></canvas>
 </div>
 <div class="table-wrap"><table>
 <thead><tr><th>Rank</th><th>Reviewer</th><th>F1</th><th>Precision</th><th>Recall</th><th>Avg call (s)</th></tr></thead>
 <tbody>
 <tr><td>1</td><td>opencode</td><td>0.811</td><td>0.896</td><td>0.754</td><td>48</td></tr>
 <tr><td>2</td><td>qwen-3.6-plus</td><td>0.761</td><td>1.000</td><td>0.650</td><td>76</td></tr>
-<tr><td>3</td><td>glm-5.x</td><td>0.697</td><td>0.772</td><td>0.725</td><td>27</td></tr>
-<tr><td>4</td><td>gemini-or (Flash)</td><td>0.681</td><td>0.736</td><td>0.639</td><td>2</td></tr>
-<tr><td>5</td><td>minimax</td><td>0.674</td><td>0.875</td><td>0.588</td><td>29</td></tr>
+<tr><td>3</td><td>glm-5.1</td><td>0.697</td><td>0.772</td><td>0.725</td><td>27</td></tr>
+<tr><td>4</td><td>gemini-or (2.5 Flash)</td><td>0.681</td><td>0.736</td><td>0.639</td><td>2</td></tr>
+<tr><td>5</td><td>minimax-m2.7</td><td>0.674</td><td>0.875</td><td>0.588</td><td>29</td></tr>
 <tr><td>6</td><td>mimo-v2-pro</td><td>0.652</td><td>0.736</td><td>0.600</td><td>49</td></tr>
 <tr><td>7</td><td>codex</td><td>0.581</td><td>0.688</td><td>0.754</td><td>60</td></tr>
-<tr><td>8</td><td>deepseek</td><td>0.572</td><td>0.778</td><td>0.494</td><td>6</td></tr>
+<tr><td>8</td><td>deepseek-v3.2</td><td>0.572</td><td>0.778</td><td>0.494</td><td>6</td></tr>
 <tr><td>9</td><td>grok-4.20</td><td>0.557</td><td>0.592</td><td>0.533</td><td>2</td></tr>
 <tr><td>10</td><td>hermes-4.3</td><td>0.551</td><td>0.646</td><td>0.653</td><td>13</td></tr>
 <tr><td>11</td><td>kimi-k2.6</td><td>0.505</td><td>0.729</td><td>0.575</td><td>83</td></tr>
@@ -1134,12 +1134,25 @@ control: it contains no real bug, so the correct output is zero findings.</p>
 </table></div>
 <p class="muted"><strong>Footnote:</strong> This is a historical run (4 fixtures &times; 3 runs = 12 calls per
 reviewer, ~$0.42 total) and the names above are shown <strong>as-recorded</strong>, which is why they still
-carry version suffixes (<code>glm-5.x</code>, <code>qwen-3.6-plus</code>, <code>kimi-k2.6</code>&hellip;).
+carry version suffixes (<code>glm-5.1</code>, <code>qwen-3.6-plus</code>, <code>kimi-k2.6</code>&hellip;).
 Reviewer keys went version-free on 2026-09-22 &mdash; those rows map to <code>glm</code>, <code>qwen</code>,
-<code>kimi</code> and so on. <strong>More importantly, these scores predate the 2026-09-22 model refresh:</strong>
-every reviewer in the table has since been pointed at a newer model (and <code>mimo</code>'s old slug had been
-delisted outright), so the ranking is stale &mdash; re-run <code>--benchmark</code> before acting on it. With
-only four fixtures the leaderboard was noisy to begin with &mdash; treat it as directional.</p>
+<code>kimi</code> and so on. <strong>These scores predate the 2026-09-22 model refresh</strong>, but the rows
+are not all stale in the same way:</p>
+<ul class="muted">
+<li><strong>Repointed &mdash; genuinely stale.</strong> <code>qwen-3.6-plus</code>, <code>glm-5.1</code>,
+<code>gemini-or</code>, <code>minimax-m2.7</code>, <code>mimo-v2-pro</code>, <code>hermes-4.3</code> and
+<code>kimi-k2.6</code> now run newer models (and <code>mimo</code>'s old slug had been delisted outright), so
+these numbers measure something the reviewer no longer is.</li>
+<li><strong>Renamed only &mdash; same model.</strong> <code>grok-4.20</code> is now keyed
+<code>grok-longctx</code> and still runs <code>x-ai/grok-4.20</code>. The key moved; the model did not.</li>
+<li><strong>Unchanged.</strong> <code>deepseek-v3.2</code> is still its own registry entry on the same slug
+&mdash; it was not replaced by <code>deepseek</code>, which is a separate reviewer.</li>
+<li><strong>Unverifiable.</strong> <code>opencode</code> and <code>codex</code> route through a CLI
+subscription with no pinned slug, so nothing records what served them that day. Almost certainly stale, but
+this repo cannot demonstrate it.</li>
+</ul>
+<p class="muted">Re-run <code>--benchmark</code> before acting on the ranking either way. With only four
+fixtures the leaderboard was noisy to begin with &mdash; treat it as directional.</p>
 
 <h2 id="running">Running a benchmark</h2>
 <pre><code># Smoke test one fixture first (catches config bugs in ~30s):

@@ -1064,6 +1064,38 @@ def test_dispatch_still_attributes_an_unparseable_response():
     assert d["model"] == "vendor/primary"
 
 
+def test_dispatch_never_records_an_empty_error_for_a_failure():
+    """A failure must be distinguishable from a success in the stored column.
+
+    Regression: `error` was `stderr[:200]`, so a route exiting non-zero with
+    nothing on stderr stored ''. _write_history keeps that verbatim, and
+    stats.py tells "this run errored" from "this row predates model recording"
+    by whether the column is non-empty — so such a row was filed as a
+    successful legacy row and earned a false unverified marker.
+    """
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import benchmark
+
+    class _SilentFailure:
+        async def send(self, prompt, route, timeout):
+            return {"exit_code": 137, "stdout": "", "stderr": "  \n ",
+                    "latency_sec": 1.0}
+
+    orig = benchmark.adapters
+    benchmark.adapters = {"p": _SilentFailure()}
+    try:
+        d = asyncio.run(benchmark._dispatch(
+            "x", {"primary": {"route": "p", "model": "vendor/primary"}}, "p", 5))
+    finally:
+        benchmark.adapters = orig
+
+    assert d["model"] is None
+    assert d["error"], "a failed run must record a non-empty error"
+    assert "137" in d["error"]
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-q"]))
