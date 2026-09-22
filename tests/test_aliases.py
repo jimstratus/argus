@@ -981,6 +981,89 @@ def test_stats_still_flags_a_succeeded_row_that_recorded_no_model(
     assert row["bench_model_unverified"] is True
 
 
+def _dispatch_model(primary_ok: bool, fallback_ok: bool | None):
+    """Run _dispatch with stub adapters and return the model it attributes.
+
+    `fallback_ok=None` means the reviewer has no fallback route at all.
+    """
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import benchmark
+
+    class _Adapter:
+        def __init__(self, ok):
+            self.ok = ok
+
+        async def send(self, prompt, route, timeout):
+            return {"exit_code": 0 if self.ok else 1,
+                    "stdout": '{"findings": []}' if self.ok else "",
+                    "stderr": "boom", "latency_sec": 1.0}
+
+    spec = {"primary": {"route": "p", "model": "vendor/primary"}}
+    stubs = {"p": _Adapter(primary_ok)}
+    if fallback_ok is not None:
+        spec["fallback"] = {"route": "f", "model": "vendor/fallback"}
+        stubs["f"] = _Adapter(fallback_ok)
+
+    orig = benchmark.adapters
+    benchmark.adapters = stubs
+    try:
+        return asyncio.run(benchmark._dispatch("x", spec, "p", 5))
+    finally:
+        benchmark.adapters = orig
+
+
+def test_dispatch_attributes_no_model_when_no_route_served():
+    """A call that failed on every route served no model.
+
+    Regression: attribution was assigned by which route was tried LAST, so a
+    run whose primary AND fallback both failed recorded the fallback's slug —
+    crediting a zero score to a model that returned nothing. A primary-only
+    reviewer whose single route failed recorded the primary's slug for the
+    same reason.
+
+    This also underpins stats.py: its unverified-marker exclusion assumes an
+    errored benchmark row carries NULL, which was not true on these paths.
+    """
+    assert _dispatch_model(True, False)["model"] == "vendor/primary"
+    assert _dispatch_model(False, True)["model"] == "vendor/fallback"
+    assert _dispatch_model(False, False)["model"] is None, (
+        "both routes failed; nothing served this call"
+    )
+    assert _dispatch_model(False, None)["model"] is None, (
+        "the only route failed; nothing served this call"
+    )
+
+
+def test_dispatch_still_attributes_an_unparseable_response():
+    """A parse error is not a non-run — the model did produce output.
+
+    Zero-scored, but the output was genuinely that model's, so the record
+    belongs to it. Excluding it would hide which model returns unusable JSON.
+    """
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import benchmark
+
+    class _Prose:
+        async def send(self, prompt, route, timeout):
+            return {"exit_code": 0, "stdout": "I think the code looks fine!",
+                    "stderr": "", "latency_sec": 1.0}
+
+    orig = benchmark.adapters
+    benchmark.adapters = {"p": _Prose()}
+    try:
+        d = asyncio.run(benchmark._dispatch(
+            "x", {"primary": {"route": "p", "model": "vendor/primary"}}, "p", 5))
+    finally:
+        benchmark.adapters = orig
+
+    assert d["parse_error"] is True
+    assert d["model"] == "vendor/primary"
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-q"]))

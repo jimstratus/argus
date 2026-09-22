@@ -135,9 +135,6 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
     primary_err = ""
     fallback_latency = 0.0
     fallback_used = False
-    # The route that actually produced the scored output. Starts as the
-    # resolved primary and moves to the fallback if the primary failed.
-    served = primary
     if r["exit_code"] != 0:
         primary_err = (r.get("stderr") or "")[:200]
         if fb:
@@ -146,7 +143,6 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
                 r2 = await fba.send(prompt, fb, timeout)
                 fallback_latency = r2.get("latency_sec", 0.0)
                 fallback_used = True
-                served = fb
                 r = r2
     findings = []
     parse_error = False
@@ -158,6 +154,14 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
             findings = normalize_findings(parsed["findings"])
         else:
             parse_error = True
+    # The route that actually produced the scored output, or None when
+    # nothing did. Derived from the FINAL exit code, not from which route was
+    # tried last: when the primary fails and the fallback fails too, no model
+    # served this call, and recording the fallback's slug would attribute a
+    # zero score to a model that returned nothing. A parse error is not this
+    # case — the model did produce output, it was just unusable, and that
+    # belongs on its record.
+    served = (fb if fallback_used else primary) if r["exit_code"] == 0 else None
     total_latency = primary_latency + fallback_latency
     return {
         "findings": findings,
