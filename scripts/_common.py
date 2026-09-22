@@ -526,12 +526,25 @@ CREATE TABLE IF NOT EXISTS benchmarks (
     f1 REAL,
     n_findings INTEGER,
     latency_sec REAL,
+    -- Load-bearing, not diagnostic: stats.py reads emptiness as "this run
+    -- succeeded", so a failed run must NEVER store '' (benchmark.py falls
+    -- back to "exit <code> with no stderr" when a route dies silently).
     error TEXT,
-    -- The model slug this row actually measured. A reviewer KEY is stable
-    -- across a model bump (gemini-or stayed gemini-or while its slug moved
-    -- 2.5-flash -> 3.8-flash), so the name alone cannot tell you whether a
-    -- score describes the model the reviewer runs today. NULL for rows
-    -- written before this column existed: unrecorded, not "same".
+    -- The model slug this row actually measured -- the route that SERVED it,
+    -- which is not necessarily the reviewer's declared primary. A reviewer
+    -- KEY is stable across a model bump (gemini-or stayed gemini-or while its
+    -- slug moved 2.5-flash -> 3.8-flash), so the name alone cannot tell you
+    -- whether a score describes the model the reviewer runs today.
+    --
+    -- NULL means THREE different things; a consumer that assumes the first
+    -- will misreport, which is the exact mistake stats.py now works around:
+    --   1. the row predates this column        -> unrecorded, NOT "same"
+    --   2. no route served it                  -> wall-cap, crash, both
+    --      routes down, or no adapter. `error` is non-empty for these.
+    --   3. a model-less CLI route succeeded    -> codex/claude/opencode have
+    --      no slug to record, so NULL is simply accurate and current.
+    -- Distinguishing 1 from 2 needs `error`; 1 from 3 needs the registry.
+    -- An explicit run-status column would end this -- see the PR follow-ups.
     model TEXT,
     PRIMARY KEY (ts, reviewer, fixture, run_idx)
 );
