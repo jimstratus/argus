@@ -72,7 +72,16 @@ defaults:
 #
 # Model IDs, context lengths and cost_per_m in this block were verified
 # against the live OpenRouter catalog (GET /api/v1/models) on 2026-09-22.
-# Re-verify with: py -3.12 scripts/verify.py --all
+#
+# Two DIFFERENT checks, neither of which substitutes for the other:
+#   reachability — does the route answer?
+#       py -3.12 scripts/verify.py --all
+#   catalog metadata — does the slug still exist, and are ctx / price current?
+#       curl -s https://openrouter.ai/api/v1/models   (diff against the pins below)
+# verify.py only pings; it cannot see the catalog. A reviewer can ping green
+# on a stale ctx or an out-of-date price, so a clean `verify.py --all` is NOT
+# evidence that these pins are current. (A `--refresh` subcommand to automate
+# the catalog diff is a tracked v2 idea; until it exists, do the diff by hand.)
 # ─────────────────────────────────────────────────────────────────────
 reviewers:
 

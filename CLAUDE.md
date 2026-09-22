@@ -171,7 +171,11 @@ only 2M-ctx reviewer in the registry — that is the whole reason it survives a
 All model IDs / ctx / `cost_per_m` were verified against the live OpenRouter
 catalog (`GET https://openrouter.ai/api/v1/models`) on 2026-09-22. `mimo` had
 been pointing at a **delisted** slug (`xiaomi/mimo-v2-pro`) and was silently
-dead. Re-verify pins the same way before trusting a benchmark.
+dead. Re-verify pins by diffing `config.yaml` against the live catalog
+(`curl -s https://openrouter.ai/api/v1/models`) before trusting a benchmark.
+**`verify.py --all` does NOT do this** — it only pings routes for
+reachability and cannot see the catalog, so a reviewer pings green on a
+stale ctx or price.
 
 ### Confidence filter + corroboration
 - Drop findings with effective confidence < 80.

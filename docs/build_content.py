@@ -850,6 +850,8 @@ against the live OpenRouter catalog on <strong>2026&#8209;09&#8209;22</strong>.<
 <tr><td><code>deepseek</code> <span class="badge">dual-route</span> <span class="badge green">default DeepSeek</span></td><td>DeepSeek direct + OpenRouter (<code>deepseek/deepseek-v4-pro-0813</code>)</td><td>1.6T MoE, 49B active, ~1M ctx; reasoning + security.</td></tr>
 <tr><td><code>deepseek-v3.2</code></td><td>OpenRouter</td><td><span class="badge gray">custom-only</span> superseded by v4-pro.</td></tr>
 <tr><td><code>hermes</code> <span class="badge">dual-route</span></td><td>Nous direct + OpenRouter fallback</td><td><span class="badge gray">custom-only</span></td></tr>
+<tr><td><code>opencode-minimax</code></td><td>OpenCode CLI &rarr; <code>minimax-coding-plan/MiniMax-M3</code></td><td><span class="badge gray">custom-only</span> MiniMax M3 billed to the OpenCode sub instead of the metered API.</td></tr>
+<tr><td><code>opencode-glm</code></td><td>OpenCode CLI &rarr; <code>ollama-cloud/glm-5.2</code></td><td><span class="badge gray">custom-only</span> Still on 5.2 &mdash; the Ollama Cloud catalog is not visible from the OpenRouter API, so <code>glm-5.3</code> there is unverified and this route has no fallback.</td></tr>
 <tr><td><code>gemini</code></td><td>Gemini CLI (paid sub)</td><td><span class="badge red">disabled</span> Windows .cmd tree-kill re-test pending; use <code>gemini-or</code> meanwhile.</td></tr>
 <tr><td><code>gemini-or</code></td><td>OpenRouter (<code>google/gemini-3.8-flash</code>)</td><td>~2s/call, best value.</td></tr>
 <tr><td><code>codex</code></td><td>Codex CLI (paid sub, GPT-5.x)</td><td>Thorough, slow; OpenRouter fallback.</td></tr>

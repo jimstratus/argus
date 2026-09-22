@@ -136,6 +136,25 @@ def test_shipped_config_routes_are_wired():
                 assert route.get("client") in clients, f"{name}.{slot}: bad client"
 
 
+def test_docs_registry_table_lists_every_reviewer():
+    """The generated reviewer table must cover the whole registry.
+
+    Regression: the docs page advertised a reviewer count taken from
+    config.yaml while its table still omitted `opencode-minimax` and
+    `opencode-glm`, so the generated reference contradicted itself. Adding a
+    reviewer without a table row is the easy way to reintroduce that.
+    """
+    import re
+    cfg = load_config()
+    src = (Path(__file__).resolve().parent.parent
+           / "docs" / "build_content.py").read_text(encoding="utf-8")
+    start = src.index("<thead><tr><th>Reviewer</th><th>Route(s)</th>")
+    table = src[start:src.index("</tbody>", start)]
+    listed = set(re.findall(r"<tr><td><code>([a-z0-9.\-]+)</code>", table))
+    missing = sorted(set(cfg["reviewers"]) - listed)
+    assert not missing, f"reviewers absent from the docs registry table: {missing}"
+
+
 def test_grok_legacy_alias_preserves_the_2m_window():
     """grok-4.20 must NOT map to `grok` (Grok 4.7, 500K ctx).
 
