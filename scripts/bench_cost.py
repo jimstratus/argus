@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import load_config, estimate_tokens, canonical_reviewer, ARGUS_HOME
 
 
-def rates_for(cfg: dict, name: str) -> tuple[str, dict | None, str]:
+def rates_for(cfg: dict, name: str, recorded: dict | None = None) -> tuple[str, dict | None, str]:
     """Resolve a recorded benchmark reviewer name to its billing rates.
 
     Returns (canonical_name, cost_per_m_or_None, status) where status is one of
@@ -38,11 +38,24 @@ def rates_for(cfg: dict, name: str) -> tuple[str, dict | None, str]:
     disappears into a total that looks complete.
     """
     canonical = canonical_reviewer(cfg, name)
+
+    # Rates recorded in the artifact win: they are what the run was actually
+    # billed at. Anything else is the CURRENT registry's price for a run that
+    # happened under a different one, which is a different number wearing the
+    # same label. qwen-3.6-plus ran at $0.50/$2.00; today's `qwen` is
+    # qwen3.8-max at $2.00/$6.00 — pricing the old run at the new rate is
+    # wrong by 4x, in the opposite direction from the $0 it used to report.
+    if recorded:
+        return canonical, recorded, "recorded"
+
     spec = cfg["reviewers"].get(canonical)
     if spec is None:
         return canonical, None, "unknown"
     rates = spec.get("cost_per_m")
-    return canonical, rates, "metered" if rates else "cli-sub"
+    # 'estimated' is deliberately distinct from 'recorded': same arithmetic,
+    # weaker claim. Artifacts written before rate snapshotting cannot be
+    # costed exactly, and saying so is better than quietly implying they can.
+    return canonical, rates, "estimated" if rates else "cli-sub"
 
 
 def main() -> int:
@@ -72,7 +85,7 @@ def main() -> int:
         name = data.get("reviewer", p.stem)
         # Keep the recorded name for display — this is a historical artifact —
         # but price it through the canonical key.
-        canonical, rates, status = rates_for(cfg, name)
+        canonical, rates, status = rates_for(cfg, name, data.get("rates"))
         label = name if canonical == name else f"{name}\u2192{canonical}"
         total_calls = 0
         est_input = 0
@@ -91,7 +104,9 @@ def main() -> int:
                 "in_tokens": est_input,
                 "out_tokens": est_output,
                 "cost_usd": round(cost, 4),
-                "rate": f"${rates['input']}/${rates['output']}",
+                "rate": (f"${rates['input']}/${rates['output']}"
+                         + ("" if status == "recorded" else "  (current rate)")),
+                "estimated": status == "estimated",
             })
             total += cost
         else:
@@ -136,6 +151,21 @@ def main() -> int:
                   f"{rate:<{note_w}} {cost:>10.4f}")
     print("-" * ruler)
     print(f"{'TOTAL':<{name_w}} {'':>5} {'':>8} {'':>8} {'':<{note_w}} {total:>10.4f}")
+
+    estimated = [r["reviewer"] for r in rows if r.get("estimated")]
+    if estimated:
+        # Say plainly that these rows are priced at today's rates rather than
+        # the ones the run was billed at. The arithmetic is identical; the
+        # claim is not, and a total that silently mixes the two invites being
+        # quoted as fact.
+        sys.stderr.write(
+            "NOTE: no rates recorded in the artifact for: "
+            f"{', '.join(estimated)}\n"
+            "      Priced at CURRENT registry rates, which may differ from "
+            "what the run was billed at\n"
+            "      (model pins and prices drift). Treat those rows as "
+            "estimates, not actuals.\n"
+        )
 
     unpriced = [r["reviewer"] for r in rows if r.get("unpriced")]
     if unpriced:

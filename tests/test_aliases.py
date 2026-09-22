@@ -149,7 +149,10 @@ def test_bench_cost_prices_legacy_reviewer_names():
     cfg = load_config()
     for legacy in ("glm-5.2", "kimi-k2.6", "qwen-3.6-plus"):
         canonical, rates, status = rates_for(cfg, legacy)
-        assert status == "metered", f"{legacy} priced as {status}"
+        # 'estimated' (not 'cli-sub'): the alias resolved and the reviewer is
+        # metered. Whether the price is exact is a separate axis, covered by
+        # test_bench_cost_prefers_rates_recorded_in_the_artifact.
+        assert status == "estimated", f"{legacy} priced as {status}"
         assert rates and rates["input"] > 0, f"{legacy} resolved to no rates"
 
 
@@ -173,6 +176,48 @@ def test_bench_cost_columns_fit_the_widest_alias_label():
     # And the notes column too — it was truncating "paid CLI sub (no per-token
     # cost)" to "paid CLI sub (".
     assert "{note_w}" in src and "note[:14]" not in src
+
+
+def test_bench_cost_prefers_rates_recorded_in_the_artifact():
+    """A historical run must be priced at what it was billed, not today's rate.
+
+    Regression: resolving a legacy name to the current registry fixed the $0
+    under-report but introduced a different wrong number. `qwen-3.6-plus` ran
+    at $0.50/$2.00; today's `qwen` is qwen3.8-max at $2.00/$6.00, so pricing
+    the old run at the new rate overstates it ~3.2x. Rates recorded in the
+    artifact take precedence.
+    """
+    from bench_cost import rates_for
+    cfg = load_config()
+    recorded = {"input": 0.50, "output": 2.00}
+    canonical, rates, status = rates_for(cfg, "qwen-3.6-plus", recorded)
+    assert canonical == "qwen"
+    assert rates == recorded, "recorded rates must win over the current registry"
+    assert status == "recorded"
+
+
+def test_bench_cost_marks_unrecorded_rates_as_estimated():
+    """Same arithmetic, weaker claim — and it must say so.
+
+    Artifacts written before rate snapshotting cannot be costed exactly. They
+    still get a number, but it must be distinguishable from an exact one so a
+    total is never quoted as actual spend when it is a present-day estimate.
+    """
+    from bench_cost import rates_for
+    cfg = load_config()
+    _, rates, status = rates_for(cfg, "qwen-3.6-plus", None)
+    assert status == "estimated", "unrecorded rates must not claim to be actuals"
+    assert rates  # still priced, just not claimed as exact
+
+
+def test_benchmark_snapshots_rates_into_new_artifacts():
+    """Going forward, artifacts must carry the rates they ran under."""
+    src = (Path(__file__).resolve().parent.parent
+           / "scripts" / "benchmark.py").read_text(encoding="utf-8")
+    assert '"rates": spec.get("cost_per_m")' in src, (
+        "benchmark.py must record cost_per_m in each per-reviewer artifact so "
+        "future cost reports do not depend on a registry that has since moved"
+    )
 
 
 def test_bench_cost_separates_unknown_from_free_cli():

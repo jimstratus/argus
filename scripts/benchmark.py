@@ -238,7 +238,18 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
             reviewer_dir = BENCHMARKS_DIR / ts / "per_reviewer"
             reviewer_dir.mkdir(parents=True, exist_ok=True)
             (reviewer_dir / f"{name}.json").write_text(
-                json.dumps({"reviewer": name, "fixtures": per_fixture}, indent=2),
+                json.dumps({
+                    "reviewer": name,
+                    # Snapshot what this run was actually priced at. Rates and
+                    # model pins drift, and reviewers get renamed, so an
+                    # artifact that records only a name cannot be costed
+                    # accurately later — the registry it is read against is not
+                    # the registry it ran under. bench_cost.py prefers these.
+                    "rates": spec.get("cost_per_m"),
+                    "model": (spec.get("primary") or {}).get("model"),
+                    "recorded_at": ts,
+                    "fixtures": per_fixture,
+                }, indent=2),
                 encoding="utf-8",
             )
         except Exception as e:
