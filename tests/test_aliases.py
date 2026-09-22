@@ -492,31 +492,46 @@ def test_no_unattributed_benchmark_claims_on_unbenchmarked_models():
     )
 
 
-def _seeded_history(tmp_path, rows):
-    """Build a throwaway history.db and return stats.py's computed rows."""
-    import sqlite3, importlib, os, sys as _sys
+def _stats_rows(tmp_path, monkeypatch, capsys, rows):
+    """Seed a throwaway history.db and return stats.py's ACTUAL output rows.
+
+    Runs stats.main() in-process with HISTORY_DB redirected, so the assertions
+    exercise the real data path — seeded row -> bench_raw -> bench -> rows ->
+    json.dumps — rather than the source text. stats.py imports HISTORY_DB by
+    value, so both it and _common (whose history_conn reads the module global)
+    have to be patched.
+    """
+    import json as _json
+    import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     import _common
-    prev = _common.HISTORY_DB
-    _common.HISTORY_DB = tmp_path / "history.db"
-    try:
-        conn = _common.history_conn()
-        conn.execute("INSERT INTO runs (run_id, ts, roster) VALUES ('r1','2026-06-01T00:00:00+00:00','x')")
-        for reviewer, model in rows:
-            conn.execute(
-                "INSERT INTO reviewer_runs (run_id,reviewer,latency_sec,n_findings,"
-                "fallback_used,exit_code) VALUES ('r1',?,1.0,1,0,0)", (reviewer,))
-            conn.execute(
-                'INSERT INTO benchmarks (ts,reviewer,fixture,run_idx,"precision",'
-                'recall,f1,model) VALUES (?,?,?,?,?,?,?,?)',
-                ("20260601T000000", reviewer, "f", 0, 0.5, 0.5, 0.5, model))
-        conn.commit(); conn.close()
-        return _common.HISTORY_DB
-    finally:
-        _common.HISTORY_DB = prev
+    import stats
+
+    db = tmp_path / "history.db"
+    monkeypatch.setattr(_common, "HISTORY_DB", db)
+    monkeypatch.setattr(stats, "HISTORY_DB", db)
+
+    conn = _common.history_conn()
+    conn.execute("INSERT INTO runs (run_id, ts, roster) "
+                 "VALUES ('r1','2026-06-01T00:00:00+00:00','x')")
+    for reviewer, model in rows:
+        conn.execute(
+            "INSERT INTO reviewer_runs (run_id,reviewer,latency_sec,n_findings,"
+            "fallback_used,exit_code) VALUES ('r1',?,1.0,1,0,0)", (reviewer,))
+        conn.execute(
+            'INSERT INTO benchmarks (ts,reviewer,fixture,run_idx,"precision",'
+            'recall,f1,model) VALUES (?,?,?,?,?,?,?,?)',
+            ("20260601T000000", reviewer, "f", 0, 0.736, 0.639, 0.681, model))
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(_sys, "argv", ["stats.py", "--format", "json"])
+    assert stats.main() == 0
+    return _json.loads(capsys.readouterr().out)
 
 
-def test_stats_flags_scores_measured_on_a_model_the_reviewer_no_longer_runs(tmp_path):
+def test_stats_flags_scores_measured_on_a_model_the_reviewer_no_longer_runs(
+        tmp_path, monkeypatch, capsys):
     """A stable KEY can hide a changed MODEL, and that must still be visible.
 
     Regression: `merged_from` only fires when two raw names canonicalize to
@@ -525,28 +540,82 @@ def test_stats_flags_scores_measured_on_a_model_the_reviewer_no_longer_runs(tmp_
     so nothing fired and its 2.5-Flash F1 printed under a 3.8-Flash reviewer —
     programmatically reproducing the misattribution four documentation edits
     in the same commit were written to prevent.
+
+    This asserts on the emitted JSON, not on stats.py's source: an earlier
+    version of this test checked for substrings and would have passed even if
+    `bench_stale_models` were computed and never plumbed into the row.
     """
-    import subprocess, sys as _sys
-    root = Path(__file__).resolve().parent.parent
-    db = _seeded_history(tmp_path, [("gemini-or", "google/gemini-2.5-flash")])
-    env = dict(**{k: v for k, v in __import__("os").environ.items()},
-               ARGUS_HOME=str(root))
-    out = subprocess.run(
-        [_sys.executable, str(root / "scripts" / "stats.py"), "--format", "json"],
-        capture_output=True, text=True, env=env,
-        cwd=str(db.parent),
+    rows = _stats_rows(tmp_path, monkeypatch, capsys,
+                       [("gemini-or", "google/gemini-2.5-flash")])
+    row = next(r for r in rows if r["reviewer"] == "gemini-or")
+    assert row["bench_stale_models"] == ["google/gemini-2.5-flash"], (
+        "a score measured on a model the reviewer no longer runs must name "
+        f"that model in the emitted row; got {row!r}"
     )
-    # stats.py resolves HISTORY_DB from ARGUS_HOME, so assert on the source
-    # contract rather than a path this test cannot redirect.
-    src = (root / "scripts" / "stats.py").read_text(encoding="utf-8")
-    assert "stale_models" in src and "bench_stale_models" in src, (
-        "stats.py must expose which models a score measured when they differ "
-        "from what the reviewer runs now"
+    assert row["bench_model_unverified"] is False
+    # The score itself is still reported — flagged, not hidden.
+    assert row["bench_f1"] == 0.681
+
+
+def test_stats_does_not_flag_a_reviewer_still_on_its_measured_model(
+        tmp_path, monkeypatch, capsys):
+    """The marker must stay off when nothing moved, or it becomes noise."""
+    rows = _stats_rows(tmp_path, monkeypatch, capsys,
+                       [("mimo", "xiaomi/mimo-v2.6-pro")])
+    row = next(r for r in rows if r["reviewer"] == "mimo")
+    assert row["bench_stale_models"] is None
+    assert row["bench_model_unverified"] is False
+
+
+def test_stats_does_not_flag_cli_reviewers_that_have_no_model(
+        tmp_path, monkeypatch, capsys):
+    """A CLI reviewer has no slug, so a NULL model is accurate, not missing."""
+    rows = _stats_rows(tmp_path, monkeypatch, capsys, [("opencode", None)])
+    row = next(r for r in rows if r["reviewer"] == "opencode")
+    assert row["bench_model_unverified"] is False, (
+        "flagging every CLI reviewer forever would train readers to ignore "
+        "the marker"
     )
-    # Grouping must keep scores separable by model, or staleness is unknowable.
-    assert "GROUP BY reviewer, model" in src
-    # And a CLI reviewer, which legitimately has no slug, must not be flagged.
-    assert "elif _current_model(canon):" in src
+    assert row["bench_stale_models"] is None
+
+
+def test_stats_merges_legacy_names_and_weights_averages_by_runs(
+        tmp_path, monkeypatch, capsys):
+    """Pre- and post-rename rows are one reviewer, averaged by run count."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import _common, stats, json as _json
+
+    db = tmp_path / "history.db"
+    monkeypatch.setattr(_common, "HISTORY_DB", db)
+    monkeypatch.setattr(stats, "HISTORY_DB", db)
+    conn = _common.history_conn()
+    # reviewer_runs is PRIMARY KEY (run_id, reviewer) — one row per reviewer
+    # per run — so three runs means three run_ids, not three rows on one.
+    for i in range(3):
+        conn.execute("INSERT INTO runs (run_id, ts, roster) VALUES (?,?,?)",
+                     (f"old{i}", "2026-06-01T00:00:00+00:00", "glm-5.2"))
+        conn.execute("INSERT INTO reviewer_runs (run_id,reviewer,latency_sec,"
+                     "n_findings,fallback_used,exit_code) "
+                     "VALUES (?,'glm-5.2',30.0,5,0,0)", (f"old{i}",))
+    conn.execute("INSERT INTO runs (run_id, ts, roster) "
+                 "VALUES ('new0','2026-09-22T00:00:00+00:00','glm')")
+    conn.execute("INSERT INTO reviewer_runs (run_id,reviewer,latency_sec,"
+                 "n_findings,fallback_used,exit_code) "
+                 "VALUES ('new0','glm',10.0,1,0,0)")
+    conn.commit(); conn.close()
+
+    monkeypatch.setattr(_sys, "argv", ["stats.py", "--format", "json"])
+    assert stats.main() == 0
+    rows = _json.loads(capsys.readouterr().out)
+    assert [r["reviewer"] for r in rows] == ["glm"], "legacy rows must merge"
+    row = rows[0]
+    assert row["runs"] == 4
+    # Run-weighted: (30*3 + 10*1)/4 = 25. Averaging the averages gives 20.
+    assert row["avg_latency_sec"] == 25.0, (
+        "averages must be re-derived from run-weighted totals, not averaged"
+    )
+    assert row["merged_from"] == ["glm-5.2"]
 
 
 def test_benchmarks_table_records_the_model_measured():
