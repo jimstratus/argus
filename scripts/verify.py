@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import load_config, extract_json, resolve_routes, resolve_route_preference
+from _common import load_config, extract_json, resolve_routes, resolve_route_preference, canonicalize_roster
 import adapters
 
 
@@ -76,7 +76,7 @@ async def _main_async(args) -> int:
     elif args.profile:
         roster = cfg["profiles"][args.profile]["members"]
     elif args.roster:
-        roster = [r.strip() for r in args.roster.split(",")]
+        roster = canonicalize_roster(cfg, [r.strip() for r in args.roster.split(",")])
     else:
         roster = cfg["profiles"]["standard"]["members"]
 

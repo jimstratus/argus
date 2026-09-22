@@ -280,6 +280,43 @@ async def run_subprocess(cmd: list[str], stdin_data: str, timeout: int,
     return await asyncio.to_thread(_runit)
 
 
+def canonical_reviewer(cfg: dict, name: str) -> str:
+    """Map a possibly-legacy reviewer name to its canonical registry key.
+
+    Reviewer keys went version-free on 2026-09-22 (glm-5.2 -> glm, ...) so that
+    bumping a model no longer invalidates saved profiles, --custom rosters, or
+    history.db rows keyed by reviewer name. `aliases:` in config.yaml keeps the
+    old names working.
+
+    A name that is already a registry key always wins over the alias map, so a
+    future reviewer may reuse a retired name without the alias hijacking it.
+    Unknown names pass through untouched — callers (estimate_cost, resolve_roster)
+    own the "not in registry" error so the message still names what the user typed.
+    """
+    if name in cfg.get("reviewers", {}):
+        return name
+    return cfg.get("aliases", {}).get(name, name)
+
+
+def canonicalize_roster(cfg: dict, names: list[str]) -> list[str]:
+    """canonical_reviewer() over a list, preserving order and dropping dupes.
+
+    Deduping matters here: `--custom "glm-5.2,glm"` is two names that resolve to
+    one reviewer, and dispatching it twice would double-count it in the
+    corroboration boost (merge.py treats each review file as an independent
+    voter, so a self-corroborating reviewer could push its own findings over the
+    confidence threshold).
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in names:
+        c = canonical_reviewer(cfg, n)
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
 def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
                    allow_free: bool = False, allow_logging: bool = False,
                    explicit_custom_only: set[str] | None = None,
@@ -292,7 +329,9 @@ def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
     the caller never asked for. host_rules `skip` and the tier/privacy gates
     still apply — they guard external consequences, not reviewer health.
     """
-    explicit_custom_only = explicit_custom_only or set()
+    explicit_custom_only = set(
+        canonicalize_roster(cfg, sorted(explicit_custom_only or set()))
+    )
     reviewers = cfg["reviewers"]
     profiles = cfg["profiles"]
     host_rules = cfg.get("host_rules", {}).get(host, {"skip": [], "add": []})
@@ -303,6 +342,10 @@ def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
         base = list(names or [])
     else:
         base = list(profiles[cfg["defaults"]["profile"]]["members"])
+
+    # Resolve legacy version-named reviewers (glm-5.2 -> glm) before any gate
+    # runs, so host_rules / disabled / custom_only all match on canonical keys.
+    base = canonicalize_roster(cfg, base)
 
     # Host adaptation
     skipped_by_host = set(host_rules.get("skip", []))
@@ -381,8 +424,8 @@ def resolve_routes(spec: dict, preference: str = "openrouter") -> tuple[dict | N
     """Order a reviewer's two routes into (primary, fallback) by preference.
 
     Reordering applies to any reviewer whose two routes are exactly the
-    {direct-API, OpenRouter} pair — currently glm-5.2, minimax-m3,
-    deepseek-v4-pro, and (custom-only) hermes-4.3. For those, `preference`
+    {direct-API, OpenRouter} pair — currently glm, minimax, deepseek, and
+    (custom-only) hermes. For those, `preference`
     ('openrouter' | 'direct') decides which is tried first; the other becomes
     the fallback. Every other reviewer — single-route reviewers and CLI
     reviewers that keep OpenRouter as a true fallback — retains its declared

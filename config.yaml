@@ -61,34 +61,50 @@ defaults:
 
 # ─────────────────────────────────────────────────────────────────────
 # Reviewers
+#
+# Keys are VERSION-FREE (glm, kimi, qwen, ...). The model version lives in
+# the `model:` slug and the `display:` string ONLY. This means a model bump
+# is a one-line edit that never invalidates a saved profile, a --custom
+# roster, or a history.db/benchmark row keyed by reviewer name.
+#
+# Old version-named keys (glm-5.2, kimi-k2.6, ...) still work — see the
+# `aliases:` map below.
+#
+# Model IDs, context lengths and cost_per_m in this block were verified
+# against the live OpenRouter catalog (GET /api/v1/models) on 2026-09-22.
+# Re-verify with: py -3.12 scripts/verify.py --all
 # ─────────────────────────────────────────────────────────────────────
 reviewers:
 
-  glm-5.2:
-    display: "GLM-5.2 (Zhipu / z.ai — direct + OpenRouter dual route)"
+  glm:
+    display: "GLM-5.3 (Zhipu / z.ai — direct + OpenRouter dual route)"
     role: [security, logic, code]
-    ctx: 131072
+    ctx: 1310720
     tier: paid
     privacy: ok
-    cost_per_m: { input: 0.60, output: 2.20 }
+    cost_per_m: { input: 0.84, output: 2.64 }
     # Dual route. Declared order is direct-first; `defaults.route_preference`
     # (or --prefer-*) decides which is actually tried first at dispatch time.
     # The OpenRouter reasoning-only trap (content=null on large prompts via
     # Io Net) is mitigated by aichat_clients.openrouter.patch below.
-    primary:  { route: aichat, client: zai,        model: "glm-5.2" }
-    fallback: { route: aichat, client: openrouter, model: "z-ai/glm-5.2" }
+    primary:  { route: aichat, client: zai,        model: "glm-5.3" }
+    fallback: { route: aichat, client: openrouter, model: "z-ai/glm-5.3" }
 
-  minimax-m3:
+  minimax:
     display: "MiniMax M3 (MiniMax — direct + OpenRouter dual route)"
     role: [style, correctness, agent]
-    ctx: 204800
+    # Still the newest MiniMax flagship as of 2026-09-22 (M3, 2026-05-31).
+    # ctx corrected 204800 -> 1048576: OpenRouter serves M3 at 1M, and the
+    # old under-declared value was tripping ctx_safety_ratio skips on large
+    # bundles that M3 could actually have handled.
+    ctx: 1048576
     tier: paid
     privacy: ok
     cost_per_m: { input: 0.30, output: 1.20 }
     primary:  { route: aichat, client: minimax,    model: "MiniMax-M3" }
     fallback: { route: aichat, client: openrouter, model: "minimax/minimax-m3" }
 
-  opencode-minimax-m3:
+  opencode-minimax:
     display: "MiniMax M3 via OpenCode (minimax coding plan)"
     role: [correctness, code, agent]
     ctx: 200000
@@ -98,7 +114,7 @@ reviewers:
     cost_per_m: null   # opencode sub
     primary: { route: opencode-cli, model: "minimax-coding-plan/MiniMax-M3" }
 
-  opencode-glm-5.2:
+  opencode-glm:
     display: "GLM-5.2 via OpenCode (Ollama Cloud)"
     role: [security, logic, code]
     ctx: 131072
@@ -106,123 +122,168 @@ reviewers:
     privacy: ok
     custom_only: true
     cost_per_m: null   # opencode sub
+    # NOT bumped to 5.3 with the rest: the Ollama Cloud catalog is not
+    # visible from the OpenRouter models API, so `ollama-cloud/glm-5.3`
+    # is unverified and this route has no fallback to absorb a bad slug.
+    # Confirm with `opencode models | grep ollama-cloud/glm` then bump.
     primary: { route: opencode-cli, model: "ollama-cloud/glm-5.2" }
 
-  kimi-k2.6:
-    display: "Kimi K2 (OR; k2.5 GA — k2.6 preview not yet on OR)"
+  kimi:
+    display: "Kimi K3 (Moonshot — flagship; K2.7-Code as cheaper fallback)"
     role: [long-context, agent, code]
-    ctx: 262144
+    ctx: 1048576
     tier: paid
     privacy: ok
-    cost_per_m: { input: 0.60, output: 2.50 }
-    # KIMI_API_KEY is for chat.kimi.com (consumer), not Moonshot Platform. Use OR.
-    primary:  { route: aichat, client: openrouter, model: "moonshotai/kimi-k2.5" }
-    fallback: { route: aichat, client: openrouter, model: "moonshotai/kimi-k2-thinking" }
+    cost_per_m: { input: 3.00, output: 15.00 }
+    # KIMI_API_KEY is for chat.kimi.com (consumer), not Moonshot Platform,
+    # so both routes go through OpenRouter.
+    # NOTE: K3 is ~5x the cost of the K2.5 this entry used to point at.
+    # If a run trips the $2 review block, the fallback slug below is the
+    # cost-sane swap (K2.7-Code, $0.71/$3.21, code-specialised).
+    primary:  { route: aichat, client: openrouter, model: "moonshotai/kimi-k3" }
+    fallback: { route: aichat, client: openrouter, model: "moonshotai/kimi-k2.7-code" }
 
-  mimo-v2-pro:
-    display: "Xiaomi MiMo-V2-Pro"
+  mimo:
+    display: "Xiaomi MiMo-V2.6-Pro"
     role: [long-context, code]
     ctx: 1048576
     tier: paid
     privacy: ok
-    cost_per_m: { input: 1.00, output: 3.00 }
-    primary:  { route: aichat, client: openrouter, model: "xiaomi/mimo-v2-pro" }
+    # Was xiaomi/mimo-v2-pro — DELISTED from OpenRouter. That slug 404'd on
+    # every dispatch, so this reviewer was silently dead until 2026-09-22.
+    # v2.6-Pro is both newer and cheaper than the v2-Pro rates it replaces.
+    cost_per_m: { input: 0.43, output: 0.87 }
+    primary:  { route: aichat, client: openrouter, model: "xiaomi/mimo-v2.6-pro" }
+    fallback: { route: aichat, client: openrouter, model: "xiaomi/mimo-v2.6-flash" }
 
-  qwen-3.6-plus:
-    display: "Qwen3.6 Plus (Alibaba)"
+  qwen:
+    display: "Qwen3.8-Max (Alibaba)"
     role: [style, agent, code]
-    ctx: 1048576
+    ctx: 1000000
     tier: paid
     privacy: ok
-    cost_per_m: { input: 0.50, output: 2.00 }
-    primary:  { route: aichat, client: openrouter, model: "qwen/qwen3.6-plus" }
+    cost_per_m: { input: 2.00, output: 6.00 }
+    # qwen3.8-max is the current flagship; qwen3.7-plus ($0.32/$1.28) is the
+    # value-tier fallback and is what the old qwen-3.6-plus entry was closest
+    # to on price.
+    primary:  { route: aichat, client: openrouter, model: "qwen/qwen3.8-max-0902" }
+    fallback: { route: aichat, client: openrouter, model: "qwen/qwen3.7-plus" }
 
-  grok-4.20:
-    display: "Grok 4.20 (xAI)"
+  grok:
+    display: "Grok 4.7 (xAI — current flagship, 500K ctx)"
+    role: [reasoning, code]
+    ctx: 500000
+    tier: paid
+    privacy: ok
+    cost_per_m: { input: 1.60, output: 4.80 }
+    primary:  { route: aichat, client: openrouter, model: "x-ai/grok-4.7" }
+
+  grok-longctx:
+    display: "Grok 4.20 (xAI — 2M ctx; the ONLY 2M-context reviewer)"
     role: [long-context, reasoning]
     ctx: 2000000
     tier: paid
     privacy: ok
-    cost_per_m: { input: 3.00, output: 15.00 }
+    custom_only: true
+    cost_per_m: { input: 1.25, output: 2.50 }
+    # Deliberately NOT superseded by `grok`. Every newer Grok (4.3 -> 4.7)
+    # drops to 500K-1M ctx; 4.20 is the only 2M window in the registry, which
+    # is the entire reason this reviewer exists. Keep until something newer
+    # matches the window. Name it via --custom/--models for huge bundles.
     primary:  { route: aichat, client: openrouter, model: "x-ai/grok-4.20" }
 
-  # Superseded by deepseek-v4-pro (kept for benchmark-history continuity).
+  # Superseded by `deepseek` (kept for benchmark-history continuity).
   # No longer in any default profile; name it via --custom/--models to use it.
   deepseek-v3.2:
-    display: "DeepSeek V3.2 (superseded by deepseek-v4-pro)"
+    display: "DeepSeek V3.2 (legacy — superseded by `deepseek`)"
     role: [reasoning, security, code]
-    ctx: 131072
+    ctx: 163840
     tier: paid
     privacy: ok
     custom_only: true
-    cost_per_m: { input: 0.27, output: 1.10 }
+    cost_per_m: { input: 0.27, output: 0.40 }
     primary:  { route: aichat, client: openrouter, model: "deepseek/deepseek-v3.2" }
 
-  deepseek-v4-pro:
-    display: "DeepSeek V4 Pro (1.6T MoE, 49B active, 1M ctx — direct + OpenRouter dual route)"
+  deepseek:
+    display: "DeepSeek V4 Pro 0813 (1M ctx — direct + OpenRouter dual route)"
     role: [reasoning, security, code, long-context]
     ctx: 1048576
     tier: paid
     privacy: ok
-    cost_per_m: { input: 0.435, output: 0.87 }
+    cost_per_m: { input: 0.62, output: 2.88 }
     # Dual route: DeepSeek's own platform (api.deepseek.com) + OpenRouter.
     # `route_preference` / --prefer-* selects which is tried first.
+    # The 0813 refresh is cheaper on input but ~1.5x on output vs the
+    # original v4-pro snapshot, so long-output runs get slightly dearer.
     primary:  { route: aichat, client: deepseek,   model: "deepseek-v4-pro" }
-    fallback: { route: aichat, client: openrouter, model: "deepseek/deepseek-v4-pro" }
+    fallback: { route: aichat, client: openrouter, model: "deepseek/deepseek-v4-pro-0813" }
 
   # Custom-only — not included in any default profile. Available via --custom or --models.
-  hermes-4.3:
-    display: "Nous Hermes 4.3 36B"
+  hermes:
+    display: "Nous Hermes 4 405B"
     role: [style, reasoning]
     ctx: 131072
     tier: paid
     privacy: ok
     custom_only: true
-    cost_per_m: { input: 1.50, output: 4.50 }
-    # Nous Portal model ID — only used when NOUSRESEARCH_API_KEY is set
-    # (it isn't in this env, so fallback via OR is what actually runs).
-    # Verified OR slug; direct slug unconfirmed — update on first successful call.
-    primary:  { route: aichat, client: nous,       model: "Hermes-4.3-36B" }
+    cost_per_m: { input: 1.00, output: 3.00 }
+    # No newer Hermes exists — hermes-4-405b (2025-08-26) is still the latest
+    # Nous release on OpenRouter as of 2026-09-22. The old display string
+    # ("Hermes 4.3 36B") named a model that was never on any route here.
+    # Direct route only fires when NOUSRESEARCH_API_KEY is set (it isn't in
+    # this env), so the OR fallback is what actually runs.
+    primary:  { route: aichat, client: nous,       model: "Hermes-4-405B" }
     fallback: { route: aichat, client: openrouter, model: "nousresearch/hermes-4-405b" }
 
   # Paid-CLI reviewers — no cost attached (use host subscription)
   gemini:
     display: "Gemini (Google CLI — ON HOLD — Windows .cmd shim doesn't tree-kill, hangs)"
     role: [frontier, long-context]
-    ctx: 2000000
+    ctx: 1048576
     tier: paid
     privacy: ok
     disabled: true      # on hold — run_subprocess now tree-kills on timeout; re-test on Windows before re-enabling (use gemini-or meanwhile)
     cost_per_m: null
+    # gemini-3.1-pro-preview is still the newest *Pro*-tier Gemini on
+    # OpenRouter (2026-02-19); the 3.6/3.7/3.8 releases are Flash-only.
     primary:  { route: gemini-cli }
     fallback: { route: aichat, client: openrouter, model: "google/gemini-3.1-pro-preview" }
 
   gemini-or:
-    display: "Gemini 2.5 Flash via OpenRouter (pro variant needed more OR credits than available)"
+    display: "Gemini 3.8 Flash via OpenRouter"
     role: [frontier, long-context]
     ctx: 1048576
     tier: paid
     privacy: ok
-    cost_per_m: { input: 0.30, output: 2.50 }
-    primary:  { route: aichat, client: openrouter, model: "google/gemini-2.5-flash" }
+    cost_per_m: { input: 0.75, output: 3.75 }
+    # Was google/gemini-2.5-flash. 3.8-flash is 2.5x the input cost but
+    # three generations newer; 2.5-flash remains selectable via --custom
+    # if the bench says the delta isn't worth it.
+    primary:  { route: aichat, client: openrouter, model: "google/gemini-3.8-flash" }
 
   codex:
-    display: "GPT-5.4 via Codex CLI"
+    display: "Codex CLI (OpenAI sub; GPT-5.3-Codex as OR fallback)"
     role: [frontier, reasoning, code]
     ctx: 400000
     tier: paid
     privacy: ok
     cost_per_m: null
+    # Fallback tracks the newest *Codex*-branded model rather than the newest
+    # OpenAI flagship (gpt-6-astra, $10/$50) — a fallback that costs 4x the
+    # primary's $0 sub would blow the review cost gate on every CLI hiccup.
     primary:  { route: codex-cli }
-    fallback: { route: aichat, client: openrouter, model: "openai/gpt-5.4" }
+    fallback: { route: aichat, client: openrouter, model: "openai/gpt-5.3-codex" }
 
   claude:
     display: "Claude via claude CLI"
     role: [frontier, reasoning]
-    ctx: 200000
+    ctx: 1000000
     tier: paid
     privacy: ok
     cost_per_m: null
+    # No OpenRouter fallback by design: this reviewer is auto-skipped inside
+    # Claude Code (host_rules) and a metered fallback would be a new spend
+    # path, not a model bump. Add one deliberately if you want it.
     primary: { route: claude-cli }
 
   opencode:
@@ -237,8 +298,8 @@ reviewers:
   # ELIMINATED: Copilot CLI's agent harness returns prose instead of our JSON
   # schema, yielding F1=0 across all non-clean fixtures. Not a retry issue —
   # fundamental prompt/harness mismatch. Left here as a reference entry only.
-  copilot-gpt5:
-    display: "GitHub Copilot CLI (GPT-5.2) — ELIMINATED (harness returns prose not JSON)"
+  copilot:
+    display: "GitHub Copilot CLI — ELIMINATED (harness returns prose not JSON)"
     role: [frontier, code]
     ctx: 128000
     tier: paid
@@ -246,7 +307,35 @@ reviewers:
     custom_only: true
     disabled: true
     cost_per_m: null
-    primary: { route: copilot-cli, model: "gpt-5.2" }
+    primary: { route: copilot-cli, model: "gpt-5.3" }
+
+# ─────────────────────────────────────────────────────────────────────
+# Reviewer aliases — old name -> canonical reviewer key.
+#
+# Reviewer keys went version-free on 2026-09-22 so that model bumps stop
+# breaking saved profiles and benchmark history. These aliases keep every
+# previously-valid roster string working: --custom "glm-5.2,kimi-k2.6"
+# resolves to --custom "glm,kimi".
+#
+# Resolution happens in _common.canonicalize_roster(), which is applied by
+# resolve_roster (dispatch/benchmark), estimate_cost.py and verify.py.
+#
+# NOTE: `grok-4.20` maps to `grok-longctx`, NOT `grok`. The old key named the
+# 2M-context model specifically, and `grok` is now Grok 4.7 at 500K — mapping
+# it to `grok` would silently shrink the context window of an existing roster.
+# ─────────────────────────────────────────────────────────────────────
+aliases:
+  glm-5.2:             glm
+  minimax-m3:          minimax
+  kimi-k2.6:           kimi
+  mimo-v2-pro:         mimo
+  qwen-3.6-plus:       qwen
+  grok-4.20:           grok-longctx
+  deepseek-v4-pro:     deepseek
+  hermes-4.3:          hermes
+  opencode-minimax-m3: opencode-minimax
+  opencode-glm-5.2:    opencode-glm
+  copilot-gpt5:        copilot
 
 # ─────────────────────────────────────────────────────────────────────
 # Named profiles
@@ -254,30 +343,30 @@ reviewers:
 profiles:
   quick:
     description: "2-reviewer smoke test"
-    members: [glm-5.2, gemini-or]
+    members: [glm, gemini-or]
   standard:
     description: "Balanced everyday review — your favorites + paid CLIs + fast Gemini"
-    members: [glm-5.2, minimax-m3, gemini-or, codex]
+    members: [glm, minimax, gemini-or, codex]
   panel:
-    description: "Maximum coverage (host CLI auto-skipped; copilot, gemini-direct, grok disabled from default)"
-    members: [glm-5.2, minimax-m3, kimi-k2.6, mimo-v2-pro, qwen-3.6-plus, deepseek-v4-pro, gemini-or, codex, claude, opencode]
+    description: "Maximum coverage (host CLI auto-skipped; copilot, gemini-direct, grok-longctx not in default)"
+    members: [glm, minimax, kimi, mimo, qwen, deepseek, grok, gemini-or, codex, claude, opencode]
   security:
     description: "Auth / crypto / input-handling changes"
-    members: [glm-5.2, deepseek-v4-pro, codex, claude]
+    members: [glm, deepseek, codex, claude]
     prompt_overlay: security
   deep:
-    description: "Long-context, large diffs, cross-file correctness (grok excluded — use --custom if 2M ctx needed)"
-    members: [mimo-v2-pro, gemini-or, kimi-k2.6, deepseek-v4-pro, codex]
+    description: "Long-context, large diffs, cross-file correctness (add grok-longctx via --custom if a 2M window is needed)"
+    members: [mimo, gemini-or, kimi, deepseek, codex]
     prompt_overlay: deep
   favorites:
-    description: "Your picks (GLM-5.2 + MiniMax M3 direct subs)"
-    members: [glm-5.2, minimax-m3]
+    description: "Your picks (GLM + MiniMax direct subs)"
+    members: [glm, minimax]
   direct:
     description: "Direct-API subs only, no Gemini — pair with route_preference=direct (or --prefer-direct) when your OpenRouter balance is depleted"
-    members: [glm-5.2, minimax-m3, deepseek-v4-pro, codex, claude, opencode]
+    members: [glm, minimax, deepseek, codex, claude, opencode]
   leaderboard-top5:
-    description: "Post-bench top-5 by F1 (opencode, qwen3.6+, glm-5.2, gemini-or, minimax)"
-    members: [opencode, qwen-3.6-plus, glm-5.2, gemini-or, minimax-m3]
+    description: "Post-bench top-5 by F1 — STALE: scored against the pre-2026-09-22 model set, re-run --benchmark before trusting it"
+    members: [opencode, qwen, glm, gemini-or, minimax]
 
 # ─────────────────────────────────────────────────────────────────────
 # Host-CLI adaptation
