@@ -248,11 +248,17 @@ opencode` — no Gemini) is the convenient roster to pair with
 > all stale in the same way, so the `Now` column says which is which:
 >
 > - **Repointed — genuinely stale.** `qwen`, `glm`, `gemini-or`, `minimax`,
->   `mimo`, `hermes`, `kimi` now run newer models (and `mimo`'s old slug had
->   been delisted entirely). These numbers measure something the reviewer no
->   longer is.
+>   `mimo`, `kimi` now run newer models (and `mimo`'s old slug had been
+>   delisted entirely). These numbers measure something the reviewer no longer
+>   is.
 > - **Renamed only — same model.** `grok-4.20` is now keyed `grok-longctx` and
 >   still runs `x-ai/grok-4.20`. The key moved; the model did not.
+>   `hermes-4.3` is the same story with a wrinkle: its version lived in the
+>   *key*, while the route that actually ran was its OpenRouter fallback
+>   `nousresearch/hermes-4-405b` — unchanged today. Its direct primary was
+>   corrected (`Hermes-4.3-36B`, a slug never confirmed to exist), but that
+>   route needs `NOUSRESEARCH_API_KEY`, which this environment does not have,
+>   so it cannot have served the row.
 > - **Unchanged.** `deepseek-v3.2` is still its own registry entry on the same
 >   slug. It was *not* replaced by `deepseek`, which is a separate reviewer.
 > - **Unverifiable.** `opencode` and `codex` route through a CLI subscription
@@ -275,7 +281,7 @@ opencode` — no Gemini) is the convenient roster to pair with
 | 7 | `codex` | `codex` (slug unrecorded) | 0.581 | 0.688 | 0.754 | 60 |
 | 8 | `deepseek-v3.2` | `deepseek-v3.2` (unchanged) | 0.572 | 0.778 | 0.494 | 6 |
 | 9 | `grok-4.20` | `grok-longctx` (same model) | 0.557 | 0.592 | 0.533 | **2** |
-| 10 | `hermes-4.3` | `hermes` (Hermes 4) | 0.551 | 0.646 | 0.653 | 13 |
+| 10 | `hermes-4.3` | `hermes` (same OR slug) | 0.551 | 0.646 | 0.653 | 13 |
 | 11 | `kimi-k2.6` | `kimi` (K3) | 0.505 | 0.729 | 0.575 | 83 |
 
 ```mermaid

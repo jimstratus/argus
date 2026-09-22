@@ -1140,11 +1140,16 @@ Reviewer keys went version-free on 2026-09-22 &mdash; those rows map to <code>gl
 are not all stale in the same way:</p>
 <ul class="muted">
 <li><strong>Repointed &mdash; genuinely stale.</strong> <code>qwen-3.6-plus</code>, <code>glm-5.1</code>,
-<code>gemini-or</code>, <code>minimax-m2.7</code>, <code>mimo-v2-pro</code>, <code>hermes-4.3</code> and
-<code>kimi-k2.6</code> now run newer models (and <code>mimo</code>'s old slug had been delisted outright), so
-these numbers measure something the reviewer no longer is.</li>
+<code>gemini-or</code>, <code>minimax-m2.7</code>, <code>mimo-v2-pro</code> and <code>kimi-k2.6</code> now run
+newer models (and <code>mimo</code>'s old slug had been delisted outright), so these numbers measure something
+the reviewer no longer is.</li>
 <li><strong>Renamed only &mdash; same model.</strong> <code>grok-4.20</code> is now keyed
-<code>grok-longctx</code> and still runs <code>x-ai/grok-4.20</code>. The key moved; the model did not.</li>
+<code>grok-longctx</code> and still runs <code>x-ai/grok-4.20</code>. The key moved; the model did not.
+<code>hermes-4.3</code> is the same story with a wrinkle: its version lived in the <em>key</em>, while the
+route that actually ran was its OpenRouter fallback <code>nousresearch/hermes-4-405b</code> &mdash; unchanged
+today. Its direct primary was corrected (<code>Hermes-4.3-36B</code>, a slug never confirmed to exist), but
+that route needs <code>NOUSRESEARCH_API_KEY</code>, which this environment does not have, so it cannot have
+served the row.</li>
 <li><strong>Unchanged.</strong> <code>deepseek-v3.2</code> is still its own registry entry on the same slug
 &mdash; it was not replaced by <code>deepseek</code>, which is a separate reviewer.</li>
 <li><strong>Unverifiable.</strong> <code>opencode</code> and <code>codex</code> route through a CLI
