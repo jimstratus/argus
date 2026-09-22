@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import load_config, estimate_tokens, resolve_route_preference, primary_is_openrouter
+from _common import load_config, estimate_tokens, resolve_route_preference, primary_is_openrouter, canonicalize_roster
 
 
 def main() -> int:
@@ -45,7 +45,9 @@ def main() -> int:
 
     diff_text = Path(args.diff).read_text(encoding="utf-8", errors="replace")
     in_tokens = estimate_tokens(diff_text) + prompt_overhead
-    roster = [r.strip() for r in args.roster.split(",") if r.strip()]
+    roster = canonicalize_roster(
+        cfg, [r.strip() for r in args.roster.split(",") if r.strip()]
+    )
 
     unknown = [n for n in roster if n not in cfg["reviewers"]]
     if unknown:

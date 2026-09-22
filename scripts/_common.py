@@ -280,6 +280,43 @@ async def run_subprocess(cmd: list[str], stdin_data: str, timeout: int,
     return await asyncio.to_thread(_runit)
 
 
+def canonical_reviewer(cfg: dict, name: str) -> str:
+    """Map a possibly-legacy reviewer name to its canonical registry key.
+
+    Reviewer keys went version-free on 2026-09-22 (glm-5.2 -> glm, ...) so that
+    bumping a model no longer invalidates saved profiles, --custom rosters, or
+    history.db rows keyed by reviewer name. `aliases:` in config.yaml keeps the
+    old names working.
+
+    A name that is already a registry key always wins over the alias map, so a
+    future reviewer may reuse a retired name without the alias hijacking it.
+    Unknown names pass through untouched — callers (estimate_cost, resolve_roster)
+    own the "not in registry" error so the message still names what the user typed.
+    """
+    if name in cfg.get("reviewers", {}):
+        return name
+    return cfg.get("aliases", {}).get(name, name)
+
+
+def canonicalize_roster(cfg: dict, names: list[str]) -> list[str]:
+    """canonical_reviewer() over a list, preserving order and dropping dupes.
+
+    Deduping matters here: `--custom "glm-5.2,glm"` is two names that resolve to
+    one reviewer, and dispatching it twice would double-count it in the
+    corroboration boost (merge.py treats each review file as an independent
+    voter, so a self-corroborating reviewer could push its own findings over the
+    confidence threshold).
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in names:
+        c = canonical_reviewer(cfg, n)
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
 def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
                    allow_free: bool = False, allow_logging: bool = False,
                    explicit_custom_only: set[str] | None = None,
@@ -292,7 +329,14 @@ def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
     the caller never asked for. host_rules `skip` and the tier/privacy gates
     still apply — they guard external consequences, not reviewer health.
     """
-    explicit_custom_only = explicit_custom_only or set()
+    # Defensive only: no current caller passes explicit_custom_only (dispatch
+    # and benchmark both rely on explicit=True for the custom_only bypass).
+    # Normalized anyway so the parameter behaves like every other roster input
+    # if a caller ever does use it. No sort — the result is a set, and
+    # canonicalize_roster already dedupes.
+    explicit_custom_only = set(
+        canonicalize_roster(cfg, list(explicit_custom_only or []))
+    )
     reviewers = cfg["reviewers"]
     profiles = cfg["profiles"]
     host_rules = cfg.get("host_rules", {}).get(host, {"skip": [], "add": []})
@@ -303,6 +347,10 @@ def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
         base = list(names or [])
     else:
         base = list(profiles[cfg["defaults"]["profile"]]["members"])
+
+    # Resolve legacy version-named reviewers (glm-5.2 -> glm) before any gate
+    # runs, so host_rules / disabled / custom_only all match on canonical keys.
+    base = canonicalize_roster(cfg, base)
 
     # Host adaptation
     skipped_by_host = set(host_rules.get("skip", []))
@@ -381,8 +429,8 @@ def resolve_routes(spec: dict, preference: str = "openrouter") -> tuple[dict | N
     """Order a reviewer's two routes into (primary, fallback) by preference.
 
     Reordering applies to any reviewer whose two routes are exactly the
-    {direct-API, OpenRouter} pair — currently glm-5.2, minimax-m3,
-    deepseek-v4-pro, and (custom-only) hermes-4.3. For those, `preference`
+    {direct-API, OpenRouter} pair — currently glm, minimax, deepseek, and
+    (custom-only) hermes. For those, `preference`
     ('openrouter' | 'direct') decides which is tried first; the other becomes
     the fallback. Every other reviewer — single-route reviewers and CLI
     reviewers that keep OpenRouter as a true fallback — retains its declared
@@ -478,13 +526,78 @@ CREATE TABLE IF NOT EXISTS benchmarks (
     f1 REAL,
     n_findings INTEGER,
     latency_sec REAL,
+    -- Load-bearing, not diagnostic: stats.py reads emptiness as "this run
+    -- succeeded", so a failed run must NEVER store '' (benchmark.py falls
+    -- back to "exit <code> with no stderr" when a route dies silently).
     error TEXT,
+    -- The model slug this row actually measured -- the route that SERVED it,
+    -- which is not necessarily the reviewer's declared primary. A reviewer
+    -- KEY is stable across a model bump (gemini-or stayed gemini-or while its
+    -- slug moved 2.5-flash -> 3.8-flash), so the name alone cannot tell you
+    -- whether a score describes the model the reviewer runs today.
+    --
+    -- NULL means THREE different things; a consumer that assumes the first
+    -- will misreport, which is the exact mistake stats.py now works around:
+    --   1. the row predates this column        -> unrecorded, NOT "same"
+    --   2. no route served it                  -> wall-cap, crash, both
+    --      routes down, or no adapter. `error` is non-empty for these.
+    --   3. a route with no `model` field succeeded -> there is no slug to
+    --      record, so NULL is simply accurate and current.
+    --
+    -- (3) is a property of the ROUTE, not of the reviewer, and not of "being
+    -- a CLI" either. opencode, opencode-minimax and opencode-glm all use
+    -- `opencode-cli` and only the first is model-less; copilot-cli takes
+    -- --model too. codex and gemini pair a model-less CLI primary with a
+    -- modelled OpenRouter fallback, so the same reviewer writes NULL when the
+    -- CLI served and a slug when the fallback did. Only claude and opencode
+    -- are model-less on every route today; that is a fact about the current
+    -- registry, not a rule. The only reliable test is whether the route dict
+    -- has `model`.
+    --
+    -- Distinguishing 1 from 2 needs `error`; 1 from 3 needs the registry --
+    -- specifically whether ANY of the reviewer's routes is model-less.
+    -- An explicit run-status column would end this -- see the PR follow-ups.
+    model TEXT,
     PRIMARY KEY (ts, reviewer, fixture, run_idx)
 );
 """
 
 
+# Columns added after the initial schema. CREATE TABLE IF NOT EXISTS is a
+# no-op on an existing database, so a new column needs an explicit ALTER.
+_MIGRATIONS = (
+    ("benchmarks", "model", "ALTER TABLE benchmarks ADD COLUMN model TEXT"),
+)
+
+
 def history_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(HISTORY_DB)
+    # The documented benchmark protocol runs one shell per reviewer, so several
+    # processes open this database at once. `timeout` makes a contended write
+    # wait for the lock instead of raising "database is locked" immediately.
+    conn = sqlite3.connect(HISTORY_DB, timeout=30)
     conn.executescript(HISTORY_SCHEMA)
+    _apply_migrations(conn)
     return conn
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Add post-initial-schema columns, tolerating a concurrent migrator.
+
+    Check-then-ALTER races when parallel shells first open an existing
+    database: both can observe the column missing, one ALTERs, and the other
+    would raise `duplicate column name: <col>` and take down that process's
+    history write. The loser of that race has nothing left to do — the column
+    it wanted now exists — so the duplicate-column error is swallowed rather
+    than serialized against. Any other OperationalError is a real schema
+    problem and still propagates.
+    """
+    for table, column, ddl in _MIGRATIONS:
+        try:
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                conn.execute(ddl)
+                conn.commit()
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+            conn.rollback()

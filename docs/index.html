@@ -133,7 +133,7 @@ small set of standalone Python scripts.</p>
 
 <h2 id="features">What you get</h2>
 <div class="card-grid">
-  <div class="card"><h3><a href="reviewers.html">Frontier roster</a></h3><p>GLM&#8209;5.2, MiniMax&nbsp;M3, DeepSeek&nbsp;V4&nbsp;Pro, Kimi, Qwen, Grok, plus Codex / Claude / OpenCode CLIs.</p></div>
+  <div class="card"><h3><a href="reviewers.html">Frontier roster</a></h3><p>GLM&#8209;5.3, MiniMax&nbsp;M3, DeepSeek&nbsp;V4&nbsp;Pro, Kimi&nbsp;K3, Qwen3.8&#8209;Max, Grok&nbsp;4.7, plus Codex / Claude / OpenCode CLIs.</p></div>
   <div class="card"><h3><a href="configuration.html">Routing preference</a></h3><p>One knob picks OpenRouter-first (public default) or your own direct-API subscriptions first.</p></div>
   <div class="card"><h3><a href="architecture.html">Corroboration merge</a></h3><p>Confidence threshold + a +15 boost when reviewers agree, with &plusmn;3-line clustering.</p></div>
   <div class="card"><h3><a href="benchmarks.html">Benchmark mode</a></h3><p>Score reviewers against labeled fixtures (precision / recall / F1) to build a leaderboard.</p></div>
@@ -146,15 +146,15 @@ small set of standalone Python scripts.</p>
 <code>standard</code> profile:</p>
 <pre><code>/argus
 /argus --profile security
-/argus --custom "glm-5.2,deepseek-v4-pro,claude"
+/argus --custom "glm,deepseek,claude"
 /argus --pr https://github.com/owner/repo/pull/123
 /argus --benchmark --runs 3
 /argus --dry-run</code></pre>
 <p>Prefer the shell? The end-to-end pipeline is three scripts &mdash; estimate, dispatch, merge:</p>
 <pre><code>RUN_DIR="$ARGUS_HOME/runs/$(date +%Y%m%dT%H%M%S)-manual"; mkdir -p "$RUN_DIR"
 git diff HEAD &gt; "$RUN_DIR/diff.patch"
-python scripts/estimate_cost.py --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
-python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+python scripts/estimate_cost.py --roster "glm,minimax,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm,minimax,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
 python scripts/merge.py --run-dir "$RUN_DIR"</code></pre>
 
 <div class="callout tip"><div class="ico">&#128161;</div><div>

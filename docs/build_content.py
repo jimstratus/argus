@@ -557,7 +557,7 @@ small set of standalone Python scripts.</p>
 
 <h2 id="features">What you get</h2>
 <div class="card-grid">
-  <div class="card"><h3><a href="reviewers.html">Frontier roster</a></h3><p>GLM&#8209;5.2, MiniMax&nbsp;M3, DeepSeek&nbsp;V4&nbsp;Pro, Kimi, Qwen, Grok, plus Codex / Claude / OpenCode CLIs.</p></div>
+  <div class="card"><h3><a href="reviewers.html">Frontier roster</a></h3><p>GLM&#8209;5.3, MiniMax&nbsp;M3, DeepSeek&nbsp;V4&nbsp;Pro, Kimi&nbsp;K3, Qwen3.8&#8209;Max, Grok&nbsp;4.7, plus Codex / Claude / OpenCode CLIs.</p></div>
   <div class="card"><h3><a href="configuration.html">Routing preference</a></h3><p>One knob picks OpenRouter-first (public default) or your own direct-API subscriptions first.</p></div>
   <div class="card"><h3><a href="architecture.html">Corroboration merge</a></h3><p>Confidence threshold + a +15 boost when reviewers agree, with &plusmn;3-line clustering.</p></div>
   <div class="card"><h3><a href="benchmarks.html">Benchmark mode</a></h3><p>Score reviewers against labeled fixtures (precision / recall / F1) to build a leaderboard.</p></div>
@@ -570,15 +570,15 @@ small set of standalone Python scripts.</p>
 <code>standard</code> profile:</p>
 <pre><code>/argus
 /argus --profile security
-/argus --custom "glm-5.2,deepseek-v4-pro,claude"
+/argus --custom "glm,deepseek,claude"
 /argus --pr https://github.com/owner/repo/pull/123
 /argus --benchmark --runs 3
 /argus --dry-run</code></pre>
 <p>Prefer the shell? The end-to-end pipeline is three scripts &mdash; estimate, dispatch, merge:</p>
 <pre><code>RUN_DIR="$ARGUS_HOME/runs/$(date +%Y%m%dT%H%M%S)-manual"; mkdir -p "$RUN_DIR"
 git diff HEAD &gt; "$RUN_DIR/diff.patch"
-python scripts/estimate_cost.py --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
-python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+python scripts/estimate_cost.py --roster "glm,minimax,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm,minimax,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
 python scripts/merge.py --run-dir "$RUN_DIR"</code></pre>
 
 <div class="callout tip"><div class="ico">&#128161;</div><div>
@@ -651,8 +651,8 @@ without spending anything. Great for a sanity check.</p>
 <p>For power users with their own provider subscriptions, large diffs, and benchmark needs.</p>
 
 <h3>Multiple provider keys + direct-API routing</h3>
-<p>Three default-roster reviewers are <strong>dual-route</strong>: <code>glm-5.2</code>, <code>minimax-m3</code>, and
-<code>deepseek-v4-pro</code> (the custom-only <code>hermes-4.3</code> is dual-route too). With their direct
+<p>Three default-roster reviewers are <strong>dual-route</strong>: <code>glm</code>, <code>minimax</code>, and
+<code>deepseek</code> (the custom-only <code>hermes</code> is dual-route too). With their direct
 keys set, you can prefer each provider&rsquo;s own API first (cheaper, uses your subscriptions)
 and keep OpenRouter as the fallback.</p>
 <pre><code>export ZAI_API_KEY="..."          # GLM direct (z.ai Coding Plan)
@@ -676,8 +676,8 @@ reviewers (Codex / Claude / OpenCode / Gemini) are never reordered &mdash; their
 <h3>Manual shell pipeline</h3>
 <pre><code>RUN_DIR="$ARGUS_HOME/runs/$(date +%Y%m%dT%H%M%S)-manual"; mkdir -p "$RUN_DIR"
 git diff HEAD &gt; "$RUN_DIR/diff.patch"
-python scripts/estimate_cost.py --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
-python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+python scripts/estimate_cost.py --roster "glm,minimax,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm,minimax,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
 python scripts/merge.py --run-dir "$RUN_DIR"</code></pre>
 
 <h3>Benchmark seeding + parallel shells</h3>
@@ -733,8 +733,8 @@ API keys are the one thing that is <em>not</em> in config: they come from enviro
 <tr><td><code>direct</code></td><td>Each provider&rsquo;s own API first, OpenRouter as fallback.</td><td>Cheaper / use your own subscriptions, or when your OpenRouter balance is depleted.</td></tr>
 </tbody>
 </table></div>
-<p>Only dual-route reviewers are reordered by this knob: <code>glm-5.2</code>,
-<code>minimax-m3</code>, <code>deepseek-v4-pro</code>, and the custom-only <code>hermes-4.3</code>. <strong>CLI reviewers</strong>
+<p>Only dual-route reviewers are reordered by this knob: <code>glm</code>,
+<code>minimax</code>, <code>deepseek</code>, and the custom-only <code>hermes</code>. <strong>CLI reviewers</strong>
 (Codex / Claude / OpenCode / Gemini) are <em>never</em> reordered &mdash; their CLI subscription stays
 primary and OpenRouter stays a true fallback.</p>
 
@@ -754,7 +754,7 @@ export ARGUS_ROUTE_PREF=direct
 <div class="callout tip"><div class="ico">&#129520;</div><div>
 <strong>The <code>direct</code> profile</strong><p>For when your OpenRouter balance is depleted, pair
 <code>route_preference: direct</code> with the <a href="profiles.html"><code>direct</code> profile</a>
-(direct-API subs only, no Gemini): <code>glm-5.2, minimax-m3, deepseek-v4-pro, codex, claude, opencode</code>.</p>
+(direct-API subs only, no Gemini): <code>glm, minimax, deepseek, codex, claude, opencode</code>.</p>
 </div></div>
 
 <h2 id="env">Environment variables</h2>
@@ -825,37 +825,55 @@ flowchart TD
 # -------------------------------------------------------------- reviewers --- #
 PAGES["reviewers"] = {
     "title": "Reviewers",
-    "desc": "The Argus reviewer registry: 15 frontier LLM reviewers with their routes and notes, including the dual-route GLM-5.2, MiniMax M3, and DeepSeek V4 Pro.",
+    "desc": "The Argus reviewer registry: 18 frontier LLM reviewers with their routes and notes, including the dual-route GLM-5.3, MiniMax M3, and DeepSeek V4 Pro.",
     "md_label": "View config.yaml",
     "md_url": BLOB + "/config.yaml",
     "body": r"""
-<p>The registry has <strong>15 reviewers</strong>. Three default-roster ones are <strong>dual-route</strong>
+<p>The registry has <strong>18 reviewers</strong>. Three default-roster ones are <strong>dual-route</strong>
 (a direct provider API plus OpenRouter) and are reordered by the
-<a href="configuration.html#routing">routing preference</a> (the custom-only <code>hermes-4.3</code> is
+<a href="configuration.html#routing">routing preference</a> (the custom-only <code>hermes</code> is
 dual-route too); the rest are single-route API reviewers or paid-CLI reviewers. Model versions are the headline of this
-release: <strong>GLM&#8209;5.2</strong>, <strong>MiniMax&nbsp;M3</strong>, and the new default
-<strong>DeepSeek&nbsp;V4&nbsp;Pro</strong>.</p>
+release: <strong>GLM&#8209;5.3</strong>, <strong>MiniMax&nbsp;M3</strong>, and the new default
+<strong>DeepSeek&nbsp;V4&nbsp;Pro&nbsp;0813</strong>. <strong>OpenRouter-routed</strong> model IDs, context
+lengths and prices were verified against the live catalog on <strong>2026&#8209;09&#8209;22</strong>; direct-provider
+and CLI-provider slugs are <em>not</em> covered, because that API cannot see them &mdash; which is why
+<code>opencode-glm</code> is still on <code>glm-5.2</code>.</p>
 
 <div class="table-wrap"><table>
 <thead><tr><th>Reviewer</th><th>Route(s)</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>glm-5.2</code> <span class="badge">dual-route</span></td><td>z.ai direct + OpenRouter (<code>z-ai/glm-5.2</code>)</td><td>Strong security + logic.</td></tr>
-<tr><td><code>minimax-m3</code> <span class="badge">dual-route</span></td><td>MiniMax direct + OpenRouter (<code>minimax/minimax-m3</code>)</td><td>High precision.</td></tr>
-<tr><td><code>kimi-k2.6</code></td><td>OpenRouter (<code>moonshotai/kimi-k2.5</code>, fallback <code>kimi-k2-thinking</code>)</td><td>Long-context, agentic.</td></tr>
-<tr><td><code>mimo-v2-pro</code></td><td>OpenRouter (<code>xiaomi/mimo-v2-pro</code>)</td><td>1M context window.</td></tr>
-<tr><td><code>qwen-3.6-plus</code></td><td>OpenRouter (<code>qwen/qwen3.6-plus</code>)</td><td>1M ctx, conservative / high precision.</td></tr>
-<tr><td><code>grok-4.20</code></td><td>OpenRouter (<code>x-ai/grok-4.20</code>)</td><td>2M ctx, pricey.</td></tr>
-<tr><td><code>deepseek-v4-pro</code> <span class="badge">dual-route</span> <span class="badge green">default DeepSeek</span></td><td>DeepSeek direct + OpenRouter (<code>deepseek/deepseek-v4-pro</code>)</td><td>1.6T MoE, 49B active, ~1M ctx; reasoning + security.</td></tr>
+<tr><td><code>glm</code> <span class="badge">dual-route</span></td><td>z.ai direct + OpenRouter (<code>z-ai/glm-5.3</code>)</td><td>Strong security + logic.</td></tr>
+<tr><td><code>minimax</code> <span class="badge">dual-route</span></td><td>MiniMax direct + OpenRouter (<code>minimax/minimax-m3</code>)</td><td>High precision.</td></tr>
+<tr><td><code>kimi</code></td><td>OpenRouter (<code>moonshotai/kimi-k3</code>, fallback <code>kimi-k2.7-code</code>)</td><td>Long-context, agentic.</td></tr>
+<tr><td><code>mimo</code></td><td>OpenRouter (<code>xiaomi/mimo-v2.6-pro</code>)</td><td>1M context window.</td></tr>
+<tr><td><code>qwen</code></td><td>OpenRouter (<code>qwen/qwen3.8-max-0902</code>)</td><td>1M ctx, conservative / high precision.</td></tr>
+<tr><td><code>grok</code></td><td>OpenRouter (<code>x-ai/grok-4.7</code>)</td><td>Current xAI flagship; 500K ctx, reasoning.</td></tr>
+<tr><td><code>grok-longctx</code></td><td>OpenRouter (<code>x-ai/grok-4.20</code>)</td><td>The only <strong>2M</strong>-ctx reviewer &mdash; kept because every newer Grok has a smaller window. Not in any shipped profile; name it explicitly.</td></tr>
+<tr><td><code>deepseek</code> <span class="badge">dual-route</span> <span class="badge green">default DeepSeek</span></td><td>DeepSeek direct + OpenRouter (<code>deepseek/deepseek-v4-pro-0813</code>)</td><td>1.6T MoE, 49B active, ~1M ctx; reasoning + security.</td></tr>
 <tr><td><code>deepseek-v3.2</code></td><td>OpenRouter</td><td><span class="badge gray">custom-only</span> superseded by v4-pro.</td></tr>
-<tr><td><code>hermes-4.3</code> <span class="badge">dual-route</span></td><td>Nous direct + OpenRouter fallback</td><td><span class="badge gray">custom-only</span></td></tr>
+<tr><td><code>hermes</code> <span class="badge">dual-route</span></td><td>Nous direct + OpenRouter fallback</td><td><span class="badge gray">custom-only</span></td></tr>
+<tr><td><code>opencode-minimax</code></td><td>OpenCode CLI &rarr; <code>minimax-coding-plan/MiniMax-M3</code></td><td><span class="badge gray">custom-only</span> MiniMax M3 billed to the OpenCode sub instead of the metered API.</td></tr>
+<tr><td><code>opencode-glm</code></td><td>OpenCode CLI &rarr; <code>ollama-cloud/glm-5.2</code></td><td><span class="badge gray">custom-only</span> Still on 5.2 &mdash; the Ollama Cloud catalog is not visible from the OpenRouter API, so <code>glm-5.3</code> there is unverified and this route has no fallback.</td></tr>
 <tr><td><code>gemini</code></td><td>Gemini CLI (paid sub)</td><td><span class="badge red">disabled</span> Windows .cmd tree-kill re-test pending; use <code>gemini-or</code> meanwhile.</td></tr>
-<tr><td><code>gemini-or</code></td><td>OpenRouter (<code>google/gemini-2.5-flash</code>)</td><td>~2s/call, best value.</td></tr>
+<tr><td><code>gemini-or</code></td><td>OpenRouter (<code>google/gemini-3.8-flash</code>)</td><td>Flash tier. <strong>Not benchmarked</strong> &mdash; the &ldquo;~2s/call, best value&rdquo; figure measured 2.5&nbsp;Flash.</td></tr>
 <tr><td><code>codex</code></td><td>Codex CLI (paid sub, GPT-5.x)</td><td>Thorough, slow; OpenRouter fallback.</td></tr>
 <tr><td><code>claude</code></td><td>Claude CLI (paid sub)</td><td>Auto-added to profile rosters when host &ne; claude.</td></tr>
 <tr><td><code>opencode</code></td><td>OpenCode CLI (paid sub)</td><td>Top benchmark performer, slow cold start.</td></tr>
-<tr><td><code>copilot-gpt5</code></td><td>GitHub Copilot CLI</td><td><span class="badge red">disabled / eliminated</span> agent harness returns prose, not our JSON schema.</td></tr>
+<tr><td><code>copilot</code></td><td>GitHub Copilot CLI</td><td><span class="badge red">disabled / eliminated</span> agent harness returns prose, not our JSON schema.</td></tr>
 </tbody>
 </table></div>
+
+<div class="callout note"><div class="ico">&#127991;</div><div>
+<strong>Reviewer names are version-free</strong>
+<p>Keys are <code>glm</code>, <code>kimi</code>, <code>qwen</code>&hellip; &mdash; the model version lives in the
+slug and display name only, so bumping a model never invalidates a saved profile, a <code>--custom</code> roster,
+or a <code>history.db</code> row. The old version-named keys still work via the <code>aliases:</code> map in
+<code>config.yaml</code>: <code>--custom "glm-5.2,kimi-k2.6"</code> resolves to <code>glm,kimi</code>, and naming
+both an alias and its canonical key dispatches the reviewer once, not twice.</p>
+<p><strong>One deliberate exception:</strong> <code>grok-4.20</code> aliases to <code>grok-longctx</code>, not
+<code>grok</code>. The old key named the 2M-context model specifically, and <code>grok</code> is now Grok&nbsp;4.7
+at 500K &mdash; mapping it across would have silently shrunk an existing roster's context window.</p>
+</div></div>
 
 <div class="callout note"><div class="ico">&#128260;</div><div>
 <strong>Dual-route vs CLI</strong>
@@ -882,14 +900,14 @@ Pick one with <code>--profile &lt;name&gt;</code>; the default is <code>standard
 <div class="table-wrap"><table>
 <thead><tr><th>Profile</th><th>Members</th><th>Use</th></tr></thead>
 <tbody>
-<tr><td><code>quick</code></td><td>glm-5.2, gemini-or</td><td>2-reviewer smoke test.</td></tr>
-<tr><td><code>standard</code> <span class="badge green">default</span></td><td>glm-5.2, minimax-m3, gemini-or, codex</td><td>Everyday review.</td></tr>
-<tr><td><code>panel</code></td><td>glm-5.2, minimax-m3, kimi-k2.6, mimo-v2-pro, qwen-3.6-plus, deepseek-v4-pro, gemini-or, codex, claude, opencode</td><td>Maximum coverage.</td></tr>
-<tr><td><code>security</code></td><td>glm-5.2, deepseek-v4-pro, codex, claude</td><td>Auth / crypto / input focus (security overlay).</td></tr>
-<tr><td><code>deep</code></td><td>mimo-v2-pro, gemini-or, kimi-k2.6, deepseek-v4-pro, codex</td><td>Long-context, large diffs (deep overlay).</td></tr>
-<tr><td><code>favorites</code></td><td>glm-5.2, minimax-m3</td><td>Direct-sub picks.</td></tr>
-<tr><td><code>direct</code> <span class="badge">new</span></td><td>glm-5.2, minimax-m3, deepseek-v4-pro, codex, claude, opencode</td><td>Direct-API subs only, no Gemini; pair with <code>route_preference: direct</code>.</td></tr>
-<tr><td><code>leaderboard-top5</code></td><td>opencode, qwen-3.6-plus, glm-5.2, gemini-or, minimax-m3</td><td>Benchmark winners.</td></tr>
+<tr><td><code>quick</code></td><td>glm, gemini-or</td><td>2-reviewer smoke test.</td></tr>
+<tr><td><code>standard</code> <span class="badge green">default</span></td><td>glm, minimax, gemini-or, codex</td><td>Everyday review.</td></tr>
+<tr><td><code>panel</code></td><td>glm, minimax, kimi, mimo, qwen, deepseek, grok, gemini-or, codex, claude, opencode</td><td>Maximum coverage.</td></tr>
+<tr><td><code>security</code></td><td>glm, deepseek, codex, claude</td><td>Auth / crypto / input focus (security overlay).</td></tr>
+<tr><td><code>deep</code></td><td>mimo, gemini-or, kimi, deepseek, codex</td><td>Long-context, large diffs (deep overlay). Add <code>grok-longctx</code> via <code>--custom</code> for a 2M window.</td></tr>
+<tr><td><code>favorites</code></td><td>glm, minimax</td><td>Direct-sub picks.</td></tr>
+<tr><td><code>direct</code> <span class="badge">new</span></td><td>glm, minimax, deepseek, codex, claude, opencode</td><td>Direct-API subs only, no Gemini; pair with <code>route_preference: direct</code>.</td></tr>
+<tr><td><code>leaderboard-top5</code></td><td>opencode, qwen, glm, gemini-or, minimax</td><td><span class="badge red">stale</span> scored against the pre-2026-09-22 model set; re-run <code>--benchmark</code>.</td></tr>
 </tbody>
 </table></div>
 
@@ -1096,29 +1114,50 @@ control: it contains no real bug, so the correct output is zero findings.</p>
 <h2 id="leaderboard">Reference leaderboard</h2>
 <p>F1 score by reviewer, from the reference benchmark run. The chart re-themes with light / dark mode.</p>
 <div class="chart-wrap" style="height:360px">
-  <canvas id="bench-chart" data-bench='[["opencode",0.811],["qwen-3.6-plus",0.761],["glm-5.x",0.697],["gemini-or",0.681],["minimax",0.674],["mimo-v2-pro",0.652],["codex",0.581],["deepseek",0.572],["grok-4.20",0.557],["hermes-4.3",0.551],["kimi-k2.6",0.505]]'></canvas>
+  <canvas id="bench-chart" data-bench='[["opencode",0.811],["qwen-3.6-plus",0.761],["glm-5.1",0.697],["gemini-or (2.5 Flash)",0.681],["minimax-m2.7",0.674],["mimo-v2-pro",0.652],["codex",0.581],["deepseek-v3.2",0.572],["grok-4.20",0.557],["hermes-4.3",0.551],["kimi-k2.6",0.505]]'></canvas>
 </div>
 <div class="table-wrap"><table>
 <thead><tr><th>Rank</th><th>Reviewer</th><th>F1</th><th>Precision</th><th>Recall</th><th>Avg call (s)</th></tr></thead>
 <tbody>
 <tr><td>1</td><td>opencode</td><td>0.811</td><td>0.896</td><td>0.754</td><td>48</td></tr>
 <tr><td>2</td><td>qwen-3.6-plus</td><td>0.761</td><td>1.000</td><td>0.650</td><td>76</td></tr>
-<tr><td>3</td><td>glm-5.x</td><td>0.697</td><td>0.772</td><td>0.725</td><td>27</td></tr>
-<tr><td>4</td><td>gemini-or (Flash)</td><td>0.681</td><td>0.736</td><td>0.639</td><td>2</td></tr>
-<tr><td>5</td><td>minimax</td><td>0.674</td><td>0.875</td><td>0.588</td><td>29</td></tr>
+<tr><td>3</td><td>glm-5.1</td><td>0.697</td><td>0.772</td><td>0.725</td><td>27</td></tr>
+<tr><td>4</td><td>gemini-or (2.5 Flash)</td><td>0.681</td><td>0.736</td><td>0.639</td><td>2</td></tr>
+<tr><td>5</td><td>minimax-m2.7</td><td>0.674</td><td>0.875</td><td>0.588</td><td>29</td></tr>
 <tr><td>6</td><td>mimo-v2-pro</td><td>0.652</td><td>0.736</td><td>0.600</td><td>49</td></tr>
 <tr><td>7</td><td>codex</td><td>0.581</td><td>0.688</td><td>0.754</td><td>60</td></tr>
-<tr><td>8</td><td>deepseek</td><td>0.572</td><td>0.778</td><td>0.494</td><td>6</td></tr>
+<tr><td>8</td><td>deepseek-v3.2</td><td>0.572</td><td>0.778</td><td>0.494</td><td>6</td></tr>
 <tr><td>9</td><td>grok-4.20</td><td>0.557</td><td>0.592</td><td>0.533</td><td>2</td></tr>
 <tr><td>10</td><td>hermes-4.3</td><td>0.551</td><td>0.646</td><td>0.653</td><td>13</td></tr>
 <tr><td>11</td><td>kimi-k2.6</td><td>0.505</td><td>0.729</td><td>0.575</td><td>83</td></tr>
 </tbody>
 </table></div>
 <p class="muted"><strong>Footnote:</strong> This is a historical run (4 fixtures &times; 3 runs = 12 calls per
-reviewer, ~$0.42 total). Reviewer names have since been version-bumped (e.g. <code>glm-5.x</code> &rarr;
-<code>glm-5.2</code>, <code>minimax</code> &rarr; <code>minimax-m3</code>, <code>deepseek</code> &rarr;
-<code>deepseek-v4-pro</code>); the numbers are shown as-recorded. With only four fixtures the leaderboard is
-noisy &mdash; treat it as directional.</p>
+reviewer, ~$0.42 total) and the names above are shown <strong>as-recorded</strong>, which is why they still
+carry version suffixes (<code>glm-5.1</code>, <code>qwen-3.6-plus</code>, <code>kimi-k2.6</code>&hellip;).
+Reviewer keys went version-free on 2026-09-22 &mdash; those rows map to <code>glm</code>, <code>qwen</code>,
+<code>kimi</code> and so on. <strong>These scores predate the 2026-09-22 model refresh</strong>, but the rows
+are not all stale in the same way:</p>
+<ul class="muted">
+<li><strong>Repointed &mdash; genuinely stale.</strong> <code>qwen-3.6-plus</code>, <code>glm-5.1</code>,
+<code>gemini-or</code>, <code>minimax-m2.7</code>, <code>mimo-v2-pro</code> and <code>kimi-k2.6</code> now run
+newer models (and <code>mimo</code>'s old slug had been delisted outright), so these numbers measure something
+the reviewer no longer is.</li>
+<li><strong>Renamed only &mdash; same model.</strong> <code>grok-4.20</code> is now keyed
+<code>grok-longctx</code> and still runs <code>x-ai/grok-4.20</code>. The key moved; the model did not.
+<code>hermes-4.3</code> is the same story with a wrinkle: its version lived in the <em>key</em>, while the
+route that actually ran was its OpenRouter fallback <code>nousresearch/hermes-4-405b</code> &mdash; unchanged
+today. Its direct primary was corrected (<code>Hermes-4.3-36B</code>, a slug never confirmed to exist), but
+that route needs <code>NOUSRESEARCH_API_KEY</code>, which this environment does not have, so it cannot have
+served the row.</li>
+<li><strong>Unchanged.</strong> <code>deepseek-v3.2</code> is still its own registry entry on the same slug
+&mdash; it was not replaced by <code>deepseek</code>, which is a separate reviewer.</li>
+<li><strong>Unverifiable.</strong> <code>opencode</code> and <code>codex</code> route through a CLI
+subscription with no pinned slug, so nothing records what served them that day. Almost certainly stale, but
+this repo cannot demonstrate it.</li>
+</ul>
+<p class="muted">Re-run <code>--benchmark</code> before acting on the ranking either way. With only four
+fixtures the leaderboard was noisy to begin with &mdash; treat it as directional.</p>
 
 <h2 id="running">Running a benchmark</h2>
 <pre><code># Smoke test one fixture first (catches config bugs in ~30s):
@@ -1126,7 +1165,7 @@ python scripts/benchmark.py --runs 1 --fixtures sql-injection --profile panel
 
 # Full run across the suite:
 python scripts/benchmark.py --runs 3 --profile panel
-python scripts/benchmark.py --runs 3 --roster "glm-5.2,minimax-m3,opencode"</code></pre>
+python scripts/benchmark.py --runs 3 --roster "glm,minimax,opencode"</code></pre>
 <p>Average call time is a cost / quality trade-off column, not a ranking axis: a fast, cheap frontier
 reviewer wins over a slow, expensive one when F1 is comparable.</p>
 """,
@@ -1206,9 +1245,10 @@ PAGES["faq"] = {
 <p>Short answers to the things people ask first. For depth, follow the links into the rest of the KB.</p>
 
 <details class="faq" open><summary>What models does Argus use?</summary><div class="faq-body">
-<p>A registry of 15 frontier reviewers &mdash; GLM&#8209;5.2, MiniMax&nbsp;M3, DeepSeek&nbsp;V4&nbsp;Pro,
-Kimi&nbsp;K2.6, MiMo&#8209;V2&#8209;Pro, Qwen&nbsp;3.6&#8209;Plus, Grok&nbsp;4.20, plus the Codex, Claude, and
-OpenCode CLIs. See the full <a href="reviewers.html">reviewer roster</a>.</p>
+<p>A registry of 18 frontier reviewers &mdash; GLM&#8209;5.3, MiniMax&nbsp;M3,
+DeepSeek&nbsp;V4&nbsp;Pro&nbsp;0813, Kimi&nbsp;K3, MiMo&#8209;V2.6&#8209;Pro, Qwen3.8&#8209;Max,
+Grok&nbsp;4.7 (plus Grok&nbsp;4.20 for a 2M window), plus the Codex, Claude, and OpenCode CLIs.
+See the full <a href="reviewers.html">reviewer roster</a>.</p>
 </div></details>
 
 <details class="faq"><summary>Do I need all the API keys?</summary><div class="faq-body">
@@ -1274,7 +1314,7 @@ PAGES["glossary"] = {
 <p>Short definitions for the vocabulary used across the Argus docs.</p>
 <dl class="gloss">
 <dt>Reviewer</dt>
-<dd>A single LLM (via an API route or a CLI) that examines the diff and returns findings. The 15 reviewers live in the <a href="reviewers.html">registry</a>.</dd>
+<dd>A single LLM (via an API route or a CLI) that examines the diff and returns findings. The 18 reviewers live in the <a href="reviewers.html">registry</a>.</dd>
 
 <dt>Route</dt>
 <dd>How a reviewer is reached &mdash; e.g. a direct provider API (z.ai, MiniMax, DeepSeek), OpenRouter, or a paid CLI. Dual-route reviewers have more than one.</dd>
