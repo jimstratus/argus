@@ -195,6 +195,9 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                 run_data.append({
                     "run_idx": idx, "n_findings": 0, "latency_sec": 0.0,
                     "exit_code": 137, "parse_error": False, "error": "wall-cap exceeded",
+                    # Nothing ran, so no model served. Explicit, not absent:
+                    # a missing key used to be backfilled with the primary.
+                    "model": None,
                     "tp": 0, "fp": 0, "fn": len(fx["ground_truth"].get("issues", [])),
                     "precision": 0.0, "recall": 0.0, "f1": 0.0,
                 })
@@ -206,7 +209,8 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
             except Exception as e:
                 await _log_progress(f"{name:<16} {fx['name']:<18} run {idx+1}/{runs}  EXCEPTION: {type(e).__name__}: {str(e)[:80]}")
                 d = {"findings": [], "latency_sec": 0.0, "exit_code": 1,
-                     "parse_error": False, "error": f"{type(e).__name__}: {e}"}
+                     "parse_error": False, "model": None,
+                     "error": f"{type(e).__name__}: {e}"}
             if d.get("exit_code", 1) != 0 or d.get("parse_error"):
                 # A failed or unparseable call is not "correctly found nothing" —
                 # zero-score it so broken reviewers can't earn F1=1.0 on clean-baseline.
@@ -343,10 +347,12 @@ def _write_history(results: list[dict], ts: str) -> None:
                         (ts, r["reviewer"], fr["fixture"], rd["run_idx"],
                          rd["precision"], rd["recall"], rd["f1"],
                          rd["n_findings"], rd["latency_sec"], (rd["error"] or "")[:400],
-                         # Per-run model when the run recorded one (a fallback
-                         # makes it differ from the reviewer's primary); the
-                         # reviewer-level snapshot only as a floor.
-                         rd.get("model") or r.get("model")),
+                         # The model that served THIS run, or NULL. There is
+                         # no reviewer-level floor: a wall-capped, crashed or
+                         # no-adapter run served nothing, and backfilling the
+                         # primary slug made those zero scores look like
+                         # measurements of a model that never ran.
+                         rd.get("model")),
                     )
         conn.commit()
     except Exception as e:

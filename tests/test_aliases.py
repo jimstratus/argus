@@ -618,18 +618,92 @@ def test_stats_merges_legacy_names_and_weights_averages_by_runs(
     assert row["merged_from"] == ["glm-5.2"]
 
 
-def test_benchmarks_table_records_the_model_measured():
-    """Schema + writer must persist the model, else staleness is unknowable."""
+_MISSING = object()
+
+
+def test_benchmarks_table_records_the_model_measured(tmp_path, monkeypatch):
+    """The writer must persist the model per run — and NULL when none served.
+
+    Behavioural, not a source grep: staleness reporting is only as good as
+    what actually lands in the column. Two rows go in — one served, one
+    wall-capped — and the assertion is on the stored values.
+
+    Regression: the writer fell back to the reviewer-level primary slug when
+    a run recorded no model, so a wall-capped or crashed run (which served
+    nothing and scores zero) was filed in history as a measurement of a model
+    that never ran.
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import _common
+    import benchmark
+
+    db = tmp_path / "history.db"
+    monkeypatch.setattr(_common, "HISTORY_DB", db)
+    monkeypatch.setattr(benchmark, "history_conn", _common.history_conn)
+
+    def _row(idx, model, exit_code):
+        r = {"run_idx": idx, "precision": 0.0, "recall": 0.0, "f1": 0.0,
+             "n_findings": 0, "latency_sec": 0.0, "error": None,
+             "exit_code": exit_code}
+        if model is not _MISSING:
+            r["model"] = model
+        return r
+
+    benchmark._write_history([{
+        "reviewer": "glm",
+        "model": "vendor/reviewer-level-snapshot",
+        "fixtures": [{"fixture": "f", "runs": [
+            _row(0, "vendor/served", 0),      # a real call
+            _row(1, None, 137),               # wall-capped: nothing served
+            _row(2, _MISSING, 1),             # older row shape: no key at all
+        ]}],
+    }], "20260601T000000")
+
+    import sqlite3 as _sqlite3
+    stored = dict(_sqlite3.connect(db).execute(
+        "SELECT run_idx, model FROM benchmarks ORDER BY run_idx").fetchall())
+    assert stored[0] == "vendor/served"
+    assert stored[1] is None, (
+        "a wall-capped run served no model; filing it under the reviewer's "
+        f"primary makes a zero score look like a measurement (got {stored[1]!r})"
+    )
+    assert stored[2] is None
+
+
+def test_history_schema_declares_the_model_column_and_its_migration():
+    """The column must exist on a NEW database and be added to an OLD one."""
     common = (Path(__file__).resolve().parent.parent
               / "scripts" / "_common.py").read_text(encoding="utf-8")
-    bench = (Path(__file__).resolve().parent.parent
-             / "scripts" / "benchmark.py").read_text(encoding="utf-8")
     assert "model TEXT" in common, "benchmarks table needs a model column"
     assert "ALTER TABLE benchmarks ADD COLUMN model" in common, (
         "CREATE TABLE IF NOT EXISTS is a no-op on an existing database, so the "
         "new column needs an explicit migration"
     )
-    assert 'r.get("model")' in bench, "benchmark.py must write the model"
+
+
+def test_stats_does_not_flag_a_cli_run_that_correctly_recorded_no_model(
+        tmp_path, monkeypatch, capsys):
+    """A model-less route makes NULL a CURRENT record, not a missing one.
+
+    Regression: the unverified (`?`) marker fired whenever a NULL row belonged
+    to a reviewer with any modelled route. `codex` and `gemini` have a
+    model-less CLI primary alongside a modelled OpenRouter fallback, so a
+    successful CLI benchmark records NULL correctly — and was flagged as
+    predating model recording on the run that produced it.
+    """
+    cfg = load_config()
+    spec = cfg["reviewers"]["codex"]
+    # Guard the premise: CLI primary with no slug, modelled fallback.
+    assert not (spec.get("primary") or {}).get("model")
+    assert (spec.get("fallback") or {}).get("model")
+
+    rows = _stats_rows(tmp_path, monkeypatch, capsys, [("codex", None)])
+    row = next(r for r in rows if r["reviewer"] == "codex")
+    assert row["bench_model_unverified"] is False, (
+        "a CLI reviewer's successful run records no model slug because its "
+        "route has none; that is current, not unverified"
+    )
 
 
 def test_docs_registry_table_lists_every_reviewer():

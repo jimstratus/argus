@@ -108,10 +108,18 @@ def main() -> int:
     # perfectly current run legitimately records either slug. Comparing against
     # the declaration-only primary marked fresh glm / minimax / deepseek
     # results stale on the very run that produced them.
-    def _current_models(name: str) -> set[str]:
+    def _routes(name: str) -> list[dict]:
         spec = cfg["reviewers"].get(name) or {}
-        return {m for m in ((spec.get("primary") or {}).get("model"),
-                            (spec.get("fallback") or {}).get("model")) if m}
+        return [r for r in (spec.get("primary"), spec.get("fallback")) if r]
+
+    def _current_models(name: str) -> set[str]:
+        return {m for m in (r.get("model") for r in _routes(name)) if m}
+
+    # True when at least one route is a CLI route, which carries no model
+    # slug. For those reviewers a NULL model is a legitimate CURRENT record,
+    # not a row predating model recording.
+    def _has_modelless_route(name: str) -> bool:
+        return any(not r.get("model") for r in _routes(name))
 
     bench: dict[str, dict] = {}
     for b in bench_raw:
@@ -125,11 +133,15 @@ def main() -> int:
         # under a 3.8 Flash reviewer with nothing to say so.
         if b["model"]:
             c["models"].add(b["model"])
-        elif _current_models(canon):
+        elif _current_models(canon) and not _has_modelless_route(canon):
             # NULL here means the row predates model recording. That is only
-            # ambiguous for a reviewer that HAS a model slug — a CLI reviewer
-            # (codex, claude, opencode) has none, so NULL is simply accurate
-            # and flagging it would make the marker noise on every run.
+            # ambiguous when EVERY route carries a slug. codex and gemini have
+            # a model-less CLI primary alongside a modelled OpenRouter
+            # fallback, so a successful CLI run records NULL correctly — and
+            # testing the model set alone flagged those fresh rows as
+            # unverified. The cost of this is real but smaller: for such a
+            # reviewer a row that genuinely predates recording no longer earns
+            # the marker, because NULL cannot distinguish the two cases.
             c["unrecorded"] += n
         c["f1"] += (b["f1"] or 0) * n
         c["prec"] += (b["prec"] or 0) * n
