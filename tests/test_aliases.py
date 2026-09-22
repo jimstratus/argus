@@ -263,6 +263,67 @@ def test_fallback_outranks_the_rate_source():
     assert rates_for(cfg, "kimi", recorded, fallback_calls=0)[2] == "recorded"
 
 
+def test_bench_cost_trusts_recorded_rates_for_reviewers_removed_from_registry():
+    """A reviewer deleted from config.yaml is still priceable from its artifact.
+
+    Regression: reordering rates_for put the `spec is None` short-circuit
+    ahead of the recorded branch, so a deleted reviewer whose artifact carried
+    exact rates read as 'unknown', priced $0 and forced exit 1 — discarding
+    the very number rate-snapshotting exists to preserve. 'unknown' must mean
+    unpriceable, not merely absent from the current registry.
+    """
+    from bench_cost import rates_for
+    cfg = load_config()
+    recorded = {"input": 0.50, "output": 2.00}
+    canonical, rates, status = rates_for(cfg, "retired-reviewer", recorded)
+    assert status == "recorded", f"deleted reviewer priced as {status}"
+    assert rates == recorded
+
+    # Absent from the registry AND no recorded rates is genuinely unpriceable.
+    assert rates_for(cfg, "retired-reviewer", None)[2] == "unknown"
+
+
+def test_bench_cost_uses_one_source_for_the_fallback_count():
+    """Status and printed note must come from the same fallback count.
+
+    Regression: the status was decided from the artifact's `fallback_calls`
+    total while the note printed a locally recomputed figure. They agreed in
+    the steady state, but nothing kept them in step — so a corrupted artifact
+    or a change to what benchmark.py counts would have the two disagree
+    silently.
+    """
+    src = (Path(__file__).resolve().parent.parent
+           / "scripts" / "bench_cost.py").read_text(encoding="utf-8")
+    assert "rates_for(cfg, name, data.get(\"rates\"), fb_calls)" in src, (
+        "rates_for must be called with the locally computed fb_calls, the same "
+        "count used for the printed note"
+    )
+    assert 'int(data.get("fallback_calls") or 0)' not in src, (
+        "the artifact's fallback_calls must not be a second source for the "
+        "status decision"
+    )
+
+
+def test_bench_cost_does_not_call_a_counted_row_excluded():
+    """A partially priced row is in the TOTAL, so it is not 'excluded'.
+
+    Regression: a `mixed` row in the priced branch set `unpriced=True` while
+    its cost was still added to the total, so the run announced
+    "could not be priced, excluded from the total: kimi" about a row whose
+    cost was in that very total. The arithmetic was right; the sentence was
+    not.
+    """
+    src = (Path(__file__).resolve().parent.parent
+           / "scripts" / "bench_cost.py").read_text(encoding="utf-8")
+    # The priced branch flags rows as partial, never as unpriced.
+    priced_branch = src[src.index("if rates:"):src.index("else:", src.index("if rates:"))]
+    assert '"partial": status == "mixed"' in priced_branch
+    assert '"unpriced"' not in priced_branch, (
+        "a row whose cost is added to the total must not be flagged unpriced"
+    )
+    assert "partially priced" in src
+
+
 def test_rates_for_docstring_lists_every_status_it_returns():
     """The documented contract must match the values callers can receive."""
     import bench_cost

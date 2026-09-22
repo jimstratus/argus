@@ -33,7 +33,9 @@ def rates_for(cfg: dict, name: str, recorded: dict | None = None,
                   the primary's). Returned rates price the primary-served
                   calls only; the fallback calls cannot be priced at all
       'cli-sub'   no per-token price, and no fallback was used — genuinely $0
-      'unknown'   not in this registry under any name; cannot be priced at all
+      'unknown'   not in this registry under any name AND no recorded rates —
+                  cannot be priced at all. A reviewer merely deleted from
+                  config.yaml still prices from its artifact's own rates
 
     Benchmark artifacts are historical: their `reviewer` fields hold whatever
     the registry called that reviewer at record time, so a pre-2026-09-22 run
@@ -49,7 +51,13 @@ def rates_for(cfg: dict, name: str, recorded: dict | None = None,
     """
     canonical = canonical_reviewer(cfg, name)
     spec = cfg["reviewers"].get(canonical)
-    if spec is None:
+
+    # 'unknown' means unpriceable, which is only true when the registry has
+    # never heard of this name AND the artifact carries no rates. A reviewer
+    # deleted from config.yaml is still fully priceable from its own recorded
+    # rates — discarding them on a registry miss would throw away the exact
+    # number the snapshot exists to preserve.
+    if spec is None and not recorded:
         return canonical, None, "unknown"
 
     # Rates recorded in the artifact win over the registry: they are what the
@@ -57,7 +65,7 @@ def rates_for(cfg: dict, name: str, recorded: dict | None = None,
     # `qwen` is qwen3.8-max at $2.00/$6.00 — pricing the old run at the new
     # rate is wrong by 4x, in the opposite direction from the $0 it used to
     # report.
-    rates = recorded or spec.get("cost_per_m")
+    rates = recorded or (spec.get("cost_per_m") if spec else None)
 
     # Fallback is checked BEFORE the rate source, because no rate in hand
     # describes a fallback call. config.yaml carries one price per reviewer —
@@ -108,10 +116,6 @@ def main() -> int:
         name = data.get("reviewer", p.stem)
         # Keep the recorded name for display — this is a historical artifact —
         # but price it through the canonical key.
-        canonical, rates, status = rates_for(
-            cfg, name, data.get("rates"), int(data.get("fallback_calls") or 0)
-        )
-        label = name if canonical == name else f"{name}\u2192{canonical}"
         total_calls = 0
         est_input = 0
         est_output = 0
@@ -128,6 +132,15 @@ def main() -> int:
             fb_calls += len(runs) - len(priced)
             est_input += len(priced) * in_per
             est_output += len(priced) * out_tokens
+
+        # Single source for the fallback count: the same `runs` array that was
+        # just priced. The artifact also carries a `fallback_calls` total, but
+        # deciding the status from one number and printing another invites the
+        # two to drift — a corrupted artifact or a change to what benchmark.py
+        # counts as a fallback would disagree silently.
+        canonical, rates, status = rates_for(cfg, name, data.get("rates"), fb_calls)
+        label = name if canonical == name else f"{name}\u2192{canonical}"
+
         if rates:
             cost = (est_input / 1_000_000) * rates["input"] + (est_output / 1_000_000) * rates["output"]
             rows.append({
@@ -140,7 +153,10 @@ def main() -> int:
                          + {"estimated": "  (current rate)",
                             "mixed": f"  ({fb_calls} fallback NOT priced)"}.get(status, "")),
                 "estimated": status == "estimated",
-                "unpriced": status == "mixed",
+                # Priced, but only partly: this row's cost IS in the total,
+                # so it is not "excluded" — it is incomplete. Distinct from
+                # `unpriced` below, which is genuinely left out.
+                "partial": status == "mixed",
             })
             total += cost
         else:
@@ -188,6 +204,15 @@ def main() -> int:
                   f"{rate:<{note_w}} {cost:>10.4f}")
     print("-" * ruler)
     print(f"{'TOTAL':<{name_w}} {'':>5} {'':>8} {'':>8} {'':<{note_w}} {total:>10.4f}")
+
+    partial = [r["reviewer"] for r in rows if r.get("partial")]
+    if partial:
+        sys.stderr.write(
+            "NOTE: partially priced - fallback calls excluded from these rows: "
+            f"{', '.join(partial)}\n"
+            "      Their primary-served calls ARE in the TOTAL; the fallback "
+            "calls are not, so the TOTAL is a LOWER BOUND.\n"
+        )
 
     estimated = [r["reviewer"] for r in rows if r.get("estimated")]
     if estimated:
