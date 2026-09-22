@@ -124,6 +124,8 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
     if adapter is None:
         return {"findings": [], "latency_sec": 0.0, "primary_latency_sec": 0.0,
                 "fallback_latency_sec": 0.0, "fallback_used": False,
+                # Nothing ran, so no model served this call.
+                "model": None,
                 "exit_code": 1, "primary_exit_code": 1, "primary_error": "",
                 "parse_error": False,
                 "error": f"no adapter for {primary.get('route')}"}
@@ -133,6 +135,9 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
     primary_err = ""
     fallback_latency = 0.0
     fallback_used = False
+    # The route that actually produced the scored output. Starts as the
+    # resolved primary and moves to the fallback if the primary failed.
+    served = primary
     if r["exit_code"] != 0:
         primary_err = (r.get("stderr") or "")[:200]
         if fb:
@@ -141,6 +146,7 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
                 r2 = await fba.send(prompt, fb, timeout)
                 fallback_latency = r2.get("latency_sec", 0.0)
                 fallback_used = True
+                served = fb
                 r = r2
     findings = []
     parse_error = False
@@ -159,6 +165,10 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
         "primary_latency_sec": round(primary_latency, 2),
         "fallback_latency_sec": round(fallback_latency, 2),
         "fallback_used": fallback_used,
+        # The model that served THIS call. A fallback-served score must not be
+        # filed under the model that failed, or stale-model reporting blames
+        # the wrong slug for the number it prints.
+        "model": (served or {}).get("model"),
         "exit_code": r["exit_code"],
         "primary_exit_code": primary_exit,
         "primary_error": primary_err,
@@ -216,6 +226,8 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                 # money, and the reviewer-level cost_per_m (null) does not
                 # say so.
                 "fallback_used": d.get("fallback_used", False),
+                # Per-run, because a fallback moves it mid-reviewer.
+                "model": d.get("model"),
                 **scored,
             })
             for f in d["findings"]:
@@ -331,7 +343,10 @@ def _write_history(results: list[dict], ts: str) -> None:
                         (ts, r["reviewer"], fr["fixture"], rd["run_idx"],
                          rd["precision"], rd["recall"], rd["f1"],
                          rd["n_findings"], rd["latency_sec"], (rd["error"] or "")[:400],
-                         r.get("model")),
+                         # Per-run model when the run recorded one (a fallback
+                         # makes it differ from the reviewer's primary); the
+                         # reviewer-level snapshot only as a floor.
+                         rd.get("model") or r.get("model")),
                     )
         conn.commit()
     except Exception as e:

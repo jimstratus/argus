@@ -546,11 +546,33 @@ _MIGRATIONS = (
 
 
 def history_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(HISTORY_DB)
+    # The documented benchmark protocol runs one shell per reviewer, so several
+    # processes open this database at once. `timeout` makes a contended write
+    # wait for the lock instead of raising "database is locked" immediately.
+    conn = sqlite3.connect(HISTORY_DB, timeout=30)
     conn.executescript(HISTORY_SCHEMA)
-    for table, column, ddl in _MIGRATIONS:
-        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
-        if column not in cols:
-            conn.execute(ddl)
-    conn.commit()
+    _apply_migrations(conn)
     return conn
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Add post-initial-schema columns, tolerating a concurrent migrator.
+
+    Check-then-ALTER races when parallel shells first open an existing
+    database: both can observe the column missing, one ALTERs, and the other
+    would raise `duplicate column name: <col>` and take down that process's
+    history write. The loser of that race has nothing left to do — the column
+    it wanted now exists — so the duplicate-column error is swallowed rather
+    than serialized against. Any other OperationalError is a real schema
+    problem and still propagates.
+    """
+    for table, column, ddl in _MIGRATIONS:
+        try:
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                conn.execute(ddl)
+                conn.commit()
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise
+            conn.rollback()

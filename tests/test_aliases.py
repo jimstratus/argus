@@ -741,6 +741,132 @@ def test_verify_canonicalizes_every_roster_source():
     assert "FAIL: not in registry, not verified" in source
 
 
+def test_stats_does_not_flag_a_score_served_by_the_fallback_route(
+        tmp_path, monkeypatch, capsys):
+    """A dual-route reviewer has TWO current models, and either may serve.
+
+    Regression: `_current_model` returned the declared primary only. But
+    `route_preference` decides which of a dual-route reviewer's models is
+    tried first, and a primary failure serves the other one — so under the
+    default OpenRouter preference a fresh `glm` run records the OpenRouter
+    slug while the declared primary is the z.ai one. stats.py then marked the
+    run stale on the very pass that produced it, which is the false positive
+    that makes a real staleness marker unreadable.
+    """
+    cfg = load_config()
+    spec = cfg["reviewers"]["glm"]
+    fallback_model = spec["fallback"]["model"]
+    # Guard the premise: this test is only meaningful while the two routes
+    # name different slugs.
+    assert fallback_model != spec["primary"]["model"]
+
+    rows = _stats_rows(tmp_path, monkeypatch, capsys, [("glm", fallback_model)])
+    row = next(r for r in rows if r["reviewer"] == "glm")
+    assert row["bench_stale_models"] is None, (
+        "a score served by the reviewer's own fallback route is current, not "
+        f"stale; got {row['bench_stale_models']!r}"
+    )
+
+
+def test_history_conn_survives_a_concurrent_migrator(tmp_path, monkeypatch):
+    """Two processes opening an un-migrated DB must both keep their writes.
+
+    Regression: check-then-ALTER raced. The documented protocol runs one shell
+    per reviewer, so on the first open of an existing database both can see
+    the `model` column missing; one ALTERs and the other died with
+    `duplicate column name: model`, losing that reviewer's history write.
+    """
+    import sqlite3 as _sqlite3
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import _common
+
+    db = tmp_path / "history.db"
+    monkeypatch.setattr(_common, "HISTORY_DB", db)
+
+    # Build a pre-migration database: the initial schema, minus the column
+    # the migration adds. This is the shape a real user's history.db has.
+    pre = _common.HISTORY_SCHEMA.replace("    model TEXT,\n", "")
+    assert pre != _common.HISTORY_SCHEMA, "schema no longer declares model"
+    seed = _sqlite3.connect(db)
+    seed.executescript(pre)
+    seed.commit()
+    seed.close()
+
+    # Simulate the loser of the race: another process commits the ALTER
+    # between this connection's inspection (which saw the column missing) and
+    # its own ALTER. sqlite3's C Connection type is immutable, so the hook
+    # goes in via a connection subclass rather than a patched method.
+    raced = {"done": False}
+
+    class _RacingConnection(_sqlite3.Connection):
+        def execute(self, sql, *a, **kw):
+            if not raced["done"] and sql.startswith("ALTER TABLE benchmarks"):
+                # The other process commits the same ALTER first; ours then
+                # runs into `duplicate column name: model`, which is exactly
+                # what killed the losing process before the fix.
+                raced["done"] = True
+                other = _sqlite3.connect(db)
+                other.execute(sql)
+                other.commit()
+                other.close()
+            return super().execute(sql, *a, **kw)
+
+    real_connect = _sqlite3.connect
+    monkeypatch.setattr(
+        _common.sqlite3, "connect",
+        lambda *a, **kw: real_connect(*a, **{**kw, "factory": _RacingConnection}))
+
+    conn = _common.history_conn()          # must not raise
+    monkeypatch.undo()
+    cols = {r[1] for r in real_connect(db).execute("PRAGMA table_info(benchmarks)")}
+    conn.close()
+    assert raced["done"], "the race was never triggered; test proves nothing"
+    assert "model" in cols
+
+
+def test_benchmark_records_the_model_that_actually_served_each_run():
+    """A fallback-served score must not be filed under the model that failed.
+
+    Regression: benchmark.py snapshotted the resolved PRIMARY model once per
+    reviewer and wrote it to every history row, including runs where
+    `fallback_used` was true. The new stale-model reporting then named the
+    slug that errored as the one that produced the number.
+    """
+    import asyncio
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import benchmark
+
+    primary = {"route": "primary_route", "model": "vendor/failing"}
+    fallback = {"route": "fallback_route", "model": "vendor/serving"}
+
+    class _Adapter:
+        def __init__(self, exit_code, stdout):
+            self.exit_code, self.stdout = exit_code, stdout
+
+        async def send(self, prompt, route, timeout):
+            return {"exit_code": self.exit_code, "stdout": self.stdout,
+                    "stderr": "boom", "latency_sec": 1.0}
+
+    ok = '{"findings": []}'
+    adapters = {"primary_route": _Adapter(1, ""),
+                "fallback_route": _Adapter(0, ok)}
+    orig = benchmark.adapters
+    benchmark.adapters = adapters
+    try:
+        d = asyncio.run(benchmark._dispatch(
+            "glm", {"primary": primary, "fallback": fallback}, "p", 5))
+    finally:
+        benchmark.adapters = orig
+
+    assert d["fallback_used"] is True
+    assert d["model"] == "vendor/serving", (
+        "the run must record the route that served it, not the one that "
+        f"failed; got {d['model']!r}"
+    )
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-q"]))

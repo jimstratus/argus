@@ -101,10 +101,17 @@ def main() -> int:
         if _canon(reviewer) != reviewer:
             m["aliased_from"].add(reviewer)
 
-    # A reviewer's CURRENT model, to compare against what its scores measured.
-    def _current_model(name: str) -> str | None:
+    # Every model a reviewer can CURRENTLY be served by, to compare against
+    # what its scores measured. Both routes count, not just the declared
+    # primary: `route_preference` decides which of a dual-route reviewer's two
+    # models is tried first, and a primary failure serves the other one — so a
+    # perfectly current run legitimately records either slug. Comparing against
+    # the declaration-only primary marked fresh glm / minimax / deepseek
+    # results stale on the very run that produced them.
+    def _current_models(name: str) -> set[str]:
         spec = cfg["reviewers"].get(name) or {}
-        return (spec.get("primary") or {}).get("model")
+        return {m for m in ((spec.get("primary") or {}).get("model"),
+                            (spec.get("fallback") or {}).get("model")) if m}
 
     bench: dict[str, dict] = {}
     for b in bench_raw:
@@ -118,7 +125,7 @@ def main() -> int:
         # under a 3.8 Flash reviewer with nothing to say so.
         if b["model"]:
             c["models"].add(b["model"])
-        elif _current_model(canon):
+        elif _current_models(canon):
             # NULL here means the row predates model recording. That is only
             # ambiguous for a reviewer that HAS a model slug — a CLI reviewer
             # (codex, claude, opencode) has none, so NULL is simply accurate
@@ -133,10 +140,10 @@ def main() -> int:
             c["f1"] /= c["n"]
             c["prec"] /= c["n"]
             c["rec"] /= c["n"]
-        cur_model = _current_model(name)
-        # Stale: measured a model this reviewer no longer runs.
+        cur_models = _current_models(name)
+        # Stale: measured a model none of this reviewer's current routes serve.
         # Unverified: predates model recording — unknown, which is not "same".
-        c["stale_models"] = sorted(m for m in c["models"] if m != cur_model)
+        c["stale_models"] = sorted(m for m in c["models"] if m not in cur_models)
         c["unverified"] = bool(c["unrecorded"])
 
     rows = []
