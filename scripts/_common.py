@@ -329,8 +329,13 @@ def resolve_roster(cfg: dict, mode: str, names: list[str] | None, host: str,
     the caller never asked for. host_rules `skip` and the tier/privacy gates
     still apply — they guard external consequences, not reviewer health.
     """
+    # Defensive only: no current caller passes explicit_custom_only (dispatch
+    # and benchmark both rely on explicit=True for the custom_only bypass).
+    # Normalized anyway so the parameter behaves like every other roster input
+    # if a caller ever does use it. No sort — the result is a set, and
+    # canonicalize_roster already dedupes.
     explicit_custom_only = set(
-        canonicalize_roster(cfg, sorted(explicit_custom_only or set()))
+        canonicalize_roster(cfg, list(explicit_custom_only or []))
     )
     reviewers = cfg["reviewers"]
     profiles = cfg["profiles"]
