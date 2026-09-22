@@ -57,13 +57,17 @@ def main() -> int:
 
     # Benchmark F1
     cur.execute(f"""
-        SELECT reviewer, AVG(f1) AS avg_f1, AVG("precision") AS avg_prec, AVG(recall) AS avg_rec, COUNT(*) AS n
+        SELECT reviewer, AVG(f1) AS avg_f1, AVG("precision") AS avg_prec, AVG(recall) AS avg_rec,
+               COUNT(*) AS n, model
         FROM benchmarks
         {where}
-        GROUP BY reviewer
+        GROUP BY reviewer, model
     """, params)
+    # Grouped by (reviewer, model): a reviewer KEY is stable across a model
+    # bump, so scores have to be kept separable by the model that produced them.
     bench_raw = [
-        {"reviewer": r[0], "f1": r[1], "prec": r[2], "rec": r[3], "n": r[4]}
+        {"reviewer": r[0], "f1": r[1], "prec": r[2], "rec": r[3], "n": r[4],
+         "model": r[5]}
         for r in cur.fetchall()
     ]
 
@@ -97,20 +101,43 @@ def main() -> int:
         if _canon(reviewer) != reviewer:
             m["aliased_from"].add(reviewer)
 
+    # A reviewer's CURRENT model, to compare against what its scores measured.
+    def _current_model(name: str) -> str | None:
+        spec = cfg["reviewers"].get(name) or {}
+        return (spec.get("primary") or {}).get("model")
+
     bench: dict[str, dict] = {}
     for b in bench_raw:
-        c = bench.setdefault(_canon(b["reviewer"]),
-                             {"f1": 0.0, "prec": 0.0, "rec": 0.0, "n": 0})
+        canon = _canon(b["reviewer"])
+        c = bench.setdefault(canon, {"f1": 0.0, "prec": 0.0, "rec": 0.0, "n": 0,
+                                     "models": set(), "unrecorded": 0})
         n = b["n"] or 0
+        # `merged_from` catches a renamed KEY. It cannot catch a stable key
+        # whose MODEL moved underneath it — gemini-or kept its name while its
+        # slug went 2.5-flash -> 3.8-flash — which would print 2.5 Flash's F1
+        # under a 3.8 Flash reviewer with nothing to say so.
+        if b["model"]:
+            c["models"].add(b["model"])
+        elif _current_model(canon):
+            # NULL here means the row predates model recording. That is only
+            # ambiguous for a reviewer that HAS a model slug — a CLI reviewer
+            # (codex, claude, opencode) has none, so NULL is simply accurate
+            # and flagging it would make the marker noise on every run.
+            c["unrecorded"] += n
         c["f1"] += (b["f1"] or 0) * n
         c["prec"] += (b["prec"] or 0) * n
         c["rec"] += (b["rec"] or 0) * n
         c["n"] += n
-    for c in bench.values():
+    for name, c in bench.items():
         if c["n"]:
             c["f1"] /= c["n"]
             c["prec"] /= c["n"]
             c["rec"] /= c["n"]
+        cur_model = _current_model(name)
+        # Stale: measured a model this reviewer no longer runs.
+        # Unverified: predates model recording — unknown, which is not "same".
+        c["stale_models"] = sorted(m for m in c["models"] if m != cur_model)
+        c["unverified"] = bool(c["unrecorded"])
 
     rows = []
     for reviewer, m in sorted(merged.items(), key=lambda kv: -kv[1]["runs"]):
@@ -133,18 +160,35 @@ def main() -> int:
             "bench_precision": round(b.get("prec") or 0, 3) if b else None,
             "bench_recall": round(b.get("rec") or 0, 3) if b else None,
             "bench_samples": b.get("n", 0) if b else 0,
+            # Which models these scores actually measured, when that differs
+            # from what the reviewer runs now.
+            "bench_stale_models": (b.get("stale_models") or None) if b else None,
+            "bench_model_unverified": bool(b.get("unverified")) if b else False,
         })
 
     if args.format == "json":
         print(json.dumps(rows, indent=2))
     else:
-        print(f"{'REVIEWER':<18} {'RUNS':>5} {'LAT(s)':>7} {'FIND':>5} {'FB':>3} {'ERR':>3}  {'F1':>5} {'PREC':>5} {'REC':>5} {'N':>3}")
+        print(f"{'REVIEWER':<18} {'RUNS':>5} {'LAT(s)':>7} {'FIND':>5} {'FB':>3} {'ERR':>3}  {'F1':>5} {'PREC':>5} {'REC':>5} {'N':>3} ")
         for r in rows:
+            mark = ("*" if r.get("bench_stale_models")
+                    else "?" if r.get("bench_model_unverified") else "")
             print(f"{r['reviewer']:<18} {r['runs']:>5} {r['avg_latency_sec']:>7.2f} {r['avg_findings']:>5.1f} {r['fallback_uses']:>3} {r['errors']:>3}  "
                   f"{(r['bench_f1'] if r['bench_f1'] is not None else 0):>5.3f} "
                   f"{(r['bench_precision'] if r['bench_precision'] is not None else 0):>5.3f} "
                   f"{(r['bench_recall'] if r['bench_recall'] is not None else 0):>5.3f} "
-                  f"{r['bench_samples']:>3}")
+                  f"{r['bench_samples']:>3} {mark}")
+
+        stale = [r for r in rows if r.get("bench_stale_models")]
+        unver = [r for r in rows if r.get("bench_model_unverified")]
+        if stale or unver:
+            print()
+        for r in stale:
+            print(f"  * {r['reviewer']}: scores measured "
+                  f"{', '.join(r['bench_stale_models'])}, which it no longer runs")
+        for r in unver:
+            print(f"  ? {r['reviewer']}: scores predate model recording — "
+                  f"cannot confirm they measured the current model")
 
     # Last 5 runs
     if args.format == "table":

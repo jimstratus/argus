@@ -283,6 +283,9 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
     }
     return {
         "reviewer": name,
+        # Carried into history.db so a score can be matched to the model that
+        # produced it, not just to the reviewer key that happened to run it.
+        "model": (_snap_primary or {}).get("model"),
         "fixtures": per_fixture,
         "overall": overall,
         "_keys_per_fixture": findings_keys_per_fixture,  # internal; not serialized
@@ -324,10 +327,11 @@ def _write_history(results: list[dict], ts: str) -> None:
             for fr in r["fixtures"]:
                 for rd in fr["runs"]:
                     conn.execute(
-                        'INSERT OR REPLACE INTO benchmarks (ts, reviewer, fixture, run_idx, "precision", recall, f1, n_findings, latency_sec, error) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                        'INSERT OR REPLACE INTO benchmarks (ts, reviewer, fixture, run_idx, "precision", recall, f1, n_findings, latency_sec, error, model) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                         (ts, r["reviewer"], fr["fixture"], rd["run_idx"],
                          rd["precision"], rd["recall"], rd["f1"],
-                         rd["n_findings"], rd["latency_sec"], (rd["error"] or "")[:400]),
+                         rd["n_findings"], rd["latency_sec"], (rd["error"] or "")[:400],
+                         r.get("model")),
                     )
         conn.commit()
     except Exception as e:

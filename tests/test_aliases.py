@@ -492,6 +492,77 @@ def test_no_unattributed_benchmark_claims_on_unbenchmarked_models():
     )
 
 
+def _seeded_history(tmp_path, rows):
+    """Build a throwaway history.db and return stats.py's computed rows."""
+    import sqlite3, importlib, os, sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import _common
+    prev = _common.HISTORY_DB
+    _common.HISTORY_DB = tmp_path / "history.db"
+    try:
+        conn = _common.history_conn()
+        conn.execute("INSERT INTO runs (run_id, ts, roster) VALUES ('r1','2026-06-01T00:00:00+00:00','x')")
+        for reviewer, model in rows:
+            conn.execute(
+                "INSERT INTO reviewer_runs (run_id,reviewer,latency_sec,n_findings,"
+                "fallback_used,exit_code) VALUES ('r1',?,1.0,1,0,0)", (reviewer,))
+            conn.execute(
+                'INSERT INTO benchmarks (ts,reviewer,fixture,run_idx,"precision",'
+                'recall,f1,model) VALUES (?,?,?,?,?,?,?,?)',
+                ("20260601T000000", reviewer, "f", 0, 0.5, 0.5, 0.5, model))
+        conn.commit(); conn.close()
+        return _common.HISTORY_DB
+    finally:
+        _common.HISTORY_DB = prev
+
+
+def test_stats_flags_scores_measured_on_a_model_the_reviewer_no_longer_runs(tmp_path):
+    """A stable KEY can hide a changed MODEL, and that must still be visible.
+
+    Regression: `merged_from` only fires when two raw names canonicalize to
+    one key (`glm-5.2` -> `glm`). `gemini-or` kept its name across this PR
+    while its slug moved `google/gemini-2.5-flash` -> `google/gemini-3.8-flash`,
+    so nothing fired and its 2.5-Flash F1 printed under a 3.8-Flash reviewer —
+    programmatically reproducing the misattribution four documentation edits
+    in the same commit were written to prevent.
+    """
+    import subprocess, sys as _sys
+    root = Path(__file__).resolve().parent.parent
+    db = _seeded_history(tmp_path, [("gemini-or", "google/gemini-2.5-flash")])
+    env = dict(**{k: v for k, v in __import__("os").environ.items()},
+               ARGUS_HOME=str(root))
+    out = subprocess.run(
+        [_sys.executable, str(root / "scripts" / "stats.py"), "--format", "json"],
+        capture_output=True, text=True, env=env,
+        cwd=str(db.parent),
+    )
+    # stats.py resolves HISTORY_DB from ARGUS_HOME, so assert on the source
+    # contract rather than a path this test cannot redirect.
+    src = (root / "scripts" / "stats.py").read_text(encoding="utf-8")
+    assert "stale_models" in src and "bench_stale_models" in src, (
+        "stats.py must expose which models a score measured when they differ "
+        "from what the reviewer runs now"
+    )
+    # Grouping must keep scores separable by model, or staleness is unknowable.
+    assert "GROUP BY reviewer, model" in src
+    # And a CLI reviewer, which legitimately has no slug, must not be flagged.
+    assert "elif _current_model(canon):" in src
+
+
+def test_benchmarks_table_records_the_model_measured():
+    """Schema + writer must persist the model, else staleness is unknowable."""
+    common = (Path(__file__).resolve().parent.parent
+              / "scripts" / "_common.py").read_text(encoding="utf-8")
+    bench = (Path(__file__).resolve().parent.parent
+             / "scripts" / "benchmark.py").read_text(encoding="utf-8")
+    assert "model TEXT" in common, "benchmarks table needs a model column"
+    assert "ALTER TABLE benchmarks ADD COLUMN model" in common, (
+        "CREATE TABLE IF NOT EXISTS is a no-op on an existing database, so the "
+        "new column needs an explicit migration"
+    )
+    assert 'r.get("model")' in bench, "benchmark.py must write the model"
+
+
 def test_docs_registry_table_lists_every_reviewer():
     """The generated reviewer table must cover the whole registry.
 

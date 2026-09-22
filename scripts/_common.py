@@ -527,12 +527,30 @@ CREATE TABLE IF NOT EXISTS benchmarks (
     n_findings INTEGER,
     latency_sec REAL,
     error TEXT,
+    -- The model slug this row actually measured. A reviewer KEY is stable
+    -- across a model bump (gemini-or stayed gemini-or while its slug moved
+    -- 2.5-flash -> 3.8-flash), so the name alone cannot tell you whether a
+    -- score describes the model the reviewer runs today. NULL for rows
+    -- written before this column existed: unrecorded, not "same".
+    model TEXT,
     PRIMARY KEY (ts, reviewer, fixture, run_idx)
 );
 """
 
 
+# Columns added after the initial schema. CREATE TABLE IF NOT EXISTS is a
+# no-op on an existing database, so a new column needs an explicit ALTER.
+_MIGRATIONS = (
+    ("benchmarks", "model", "ALTER TABLE benchmarks ADD COLUMN model TEXT"),
+)
+
+
 def history_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(HISTORY_DB)
     conn.executescript(HISTORY_SCHEMA)
+    for table, column, ddl in _MIGRATIONS:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(ddl)
+    conn.commit()
     return conn
