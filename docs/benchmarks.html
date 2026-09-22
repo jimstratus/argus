@@ -138,10 +138,13 @@ control: it contains no real bug, so the correct output is zero findings.</p>
 </tbody>
 </table></div>
 <p class="muted"><strong>Footnote:</strong> This is a historical run (4 fixtures &times; 3 runs = 12 calls per
-reviewer, ~$0.42 total). Reviewer names have since been version-bumped (e.g. <code>glm-5.x</code> &rarr;
-<code>glm-5.2</code>, <code>minimax</code> &rarr; <code>minimax-m3</code>, <code>deepseek</code> &rarr;
-<code>deepseek-v4-pro</code>); the numbers are shown as-recorded. With only four fixtures the leaderboard is
-noisy &mdash; treat it as directional.</p>
+reviewer, ~$0.42 total) and the names above are shown <strong>as-recorded</strong>, which is why they still
+carry version suffixes (<code>glm-5.x</code>, <code>qwen-3.6-plus</code>, <code>kimi-k2.6</code>&hellip;).
+Reviewer keys went version-free on 2026-09-22 &mdash; those rows map to <code>glm</code>, <code>qwen</code>,
+<code>kimi</code> and so on. <strong>More importantly, these scores predate the 2026-09-22 model refresh:</strong>
+every reviewer in the table has since been pointed at a newer model (and <code>mimo</code>'s old slug had been
+delisted outright), so the ranking is stale &mdash; re-run <code>--benchmark</code> before acting on it. With
+only four fixtures the leaderboard was noisy to begin with &mdash; treat it as directional.</p>
 
 <h2 id="running">Running a benchmark</h2>
 <pre><code># Smoke test one fixture first (catches config bugs in ~30s):
@@ -149,7 +152,7 @@ python scripts/benchmark.py --runs 1 --fixtures sql-injection --profile panel
 
 # Full run across the suite:
 python scripts/benchmark.py --runs 3 --profile panel
-python scripts/benchmark.py --runs 3 --roster "glm-5.2,minimax-m3,opencode"</code></pre>
+python scripts/benchmark.py --runs 3 --roster "glm,minimax,opencode"</code></pre>
 <p>Average call time is a cost / quality trade-off column, not a ranking axis: a fast, cheap frontier
 reviewer wins over a slow, expensive one when F1 is comparable.</p>
 
