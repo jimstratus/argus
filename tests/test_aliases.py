@@ -153,6 +153,28 @@ def test_bench_cost_prices_legacy_reviewer_names():
         assert rates and rates["input"] > 0, f"{legacy} resolved to no rates"
 
 
+def test_bench_cost_columns_fit_the_widest_alias_label():
+    """The cost table must size its columns to the data, not a fixed width.
+
+    Regression: rows are labelled `recorded->canonical`, and
+    `opencode-minimax-m3->opencode-minimax` is 36 chars against a hard-coded
+    18-wide field. Python pads but never truncates, so five of the eleven
+    aliases shoved every column to their right out of alignment — visible only
+    on exactly the historical artifacts the alias fix was written for.
+    """
+    cfg = load_config()
+    widest = max(len(f"{old}\u2192{new}") for old, new in cfg["aliases"].items())
+    src = (Path(__file__).resolve().parent.parent
+           / "scripts" / "bench_cost.py").read_text(encoding="utf-8")
+    assert "{name_w}" in src and "len(r[\"reviewer\"]) for r in rows" in src, (
+        "bench_cost.py must derive its reviewer column width from the rows; a "
+        f"fixed width fails on the widest alias label ({widest} chars)"
+    )
+    # And the notes column too — it was truncating "paid CLI sub (no per-token
+    # cost)" to "paid CLI sub (".
+    assert "{note_w}" in src and "note[:14]" not in src
+
+
 def test_bench_cost_separates_unknown_from_free_cli():
     """$0 for a CLI sub and $0 for an unpriceable name must not look alike.
 

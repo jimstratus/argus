@@ -105,8 +105,22 @@ def main() -> int:
             })
 
     rows.sort(key=lambda r: -r.get("cost_usd", 0))
-    print(f"{'REVIEWER':<18} {'CALLS':>5} {'IN tok':>8} {'OUT tok':>8} {'RATE in/out':<15} {'COST USD':>10}")
-    print("-" * 75)
+
+    # Size the text columns from the data instead of a fixed width. A row label
+    # can be `recorded->canonical` (e.g. opencode-minimax-m3->opencode-minimax,
+    # 36 chars), which blew past the old hard-coded 18 and shoved every later
+    # column right by however much it overflowed. Deriving the width means a
+    # future alias chain of any length still lines up, and the notes stop being
+    # truncated mid-word ("paid CLI sub (").
+    # 18 / 15 are the original fixed widths, kept as floors so the common
+    # all-canonical table looks exactly as it did before.
+    name_w = max(18, *(len(r["reviewer"]) for r in rows)) if rows else 18
+    note_w = max(15, *(len(r.get("note") or r.get("rate") or "") for r in rows)) if rows else 15
+    ruler = name_w + note_w + 5 + 8 + 8 + 10 + 5  # +5 for the single spaces between columns
+
+    print(f"{'REVIEWER':<{name_w}} {'CALLS':>5} {'IN tok':>8} {'OUT tok':>8} "
+          f"{'RATE in/out':<{note_w}} {'COST USD':>10}")
+    print("-" * ruler)
     for r in rows:
         calls = r["calls"]
         cost = r["cost_usd"]
@@ -115,11 +129,13 @@ def main() -> int:
         intok = r.get("in_tokens", 0)
         outtok = r.get("out_tokens", 0)
         if note:
-            print(f"{r['reviewer']:<18} {calls:>5} {'-':>8} {'-':>8} {note[:14]:<15} {cost:>10.4f}")
+            print(f"{r['reviewer']:<{name_w}} {calls:>5} {'-':>8} {'-':>8} "
+                  f"{note:<{note_w}} {cost:>10.4f}")
         else:
-            print(f"{r['reviewer']:<18} {calls:>5} {intok:>8} {outtok:>8} {rate:<15} {cost:>10.4f}")
-    print("-" * 75)
-    print(f"{'TOTAL':<18} {'':>5} {'':>8} {'':>8} {'':<15} {total:>10.4f}")
+            print(f"{r['reviewer']:<{name_w}} {calls:>5} {intok:>8} {outtok:>8} "
+                  f"{rate:<{note_w}} {cost:>10.4f}")
+    print("-" * ruler)
+    print(f"{'TOTAL':<{name_w}} {'':>5} {'':>8} {'':>8} {'':<{note_w}} {total:>10.4f}")
 
     unpriced = [r["reviewer"] for r in rows if r.get("unpriced")]
     if unpriced:
