@@ -233,6 +233,39 @@ def test_bench_cost_separates_unknown_from_free_cli():
     assert rates_for(cfg, "no-such-reviewer-anywhere")[2] == "unknown"
 
 
+# Reviewer names as recorded in this repo's reference benchmark (README.md
+# "Reference benchmark" table and docs/benchmarks.html). These are the
+# historical artifact names bench_cost.py must still be able to price.
+DOCUMENTED_HISTORICAL_NAMES = [
+    "opencode", "qwen-3.6-plus", "glm-5.1", "gemini-or", "minimax-m2.7",
+    "mimo-v2-pro", "codex", "deepseek-v3.2", "grok-4.20", "hermes-4.3",
+    "kimi-k2.6",
+]
+
+
+def test_every_documented_historical_name_is_priceable():
+    """The repo's own documented benchmark must still cost cleanly.
+
+    Regression: `glm-5.1` and `minimax-m2.7` appear in the reference
+    leaderboard but had no aliases, so bench_cost.py marked them `unknown`,
+    dropped them from the total, and — once unknown names became fatal —
+    exited 1. The historical-compatibility promise has to cover at minimum
+    the artifacts this repository documents.
+
+    'estimated' is the expected status for most of these: the run predates
+    rate snapshotting, so it is priced at current rates and labelled as an
+    estimate. What must never happen is 'unknown'.
+    """
+    from bench_cost import rates_for
+    cfg = load_config()
+    unknown = [n for n in DOCUMENTED_HISTORICAL_NAMES
+               if rates_for(cfg, n)[2] == "unknown"]
+    assert not unknown, (
+        "documented benchmark reviewers cannot be priced (no alias, not in "
+        f"registry): {unknown}"
+    )
+
+
 def test_docs_registry_table_lists_every_reviewer():
     """The generated reviewer table must cover the whole registry.
 

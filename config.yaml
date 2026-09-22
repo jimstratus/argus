@@ -70,8 +70,18 @@ defaults:
 # Old version-named keys (glm-5.2, kimi-k2.6, ...) still work — see the
 # `aliases:` map below.
 #
-# Model IDs, context lengths and cost_per_m in this block were verified
-# against the live OpenRouter catalog (GET /api/v1/models) on 2026-09-22.
+# The OPENROUTER-ROUTED pins in this block — every `client: openrouter`
+# model slug, plus its ctx and cost_per_m — were verified against the live
+# catalog (GET /api/v1/models) on 2026-09-22.
+#
+# NOT covered by that check, because the OpenRouter API cannot see them:
+#   - direct-provider slugs (zai `glm-5.3`, minimax `MiniMax-M3`,
+#     deepseek `deepseek-v4-pro`, nous `Hermes-4-405B`)
+#   - CLI-provider slugs (`minimax-coding-plan/...`, `ollama-cloud/...`,
+#     copilot's `gpt-5.3`)
+# `opencode-glm` is the live example: it is deliberately still on
+# glm-5.2 precisely because that catalog is not visible from here (see its
+# entry below). Do not read this header as validating those routes.
 #
 # Two DIFFERENT checks, neither of which substitutes for the other:
 #   reachability — does the route answer?
@@ -339,6 +349,14 @@ reviewers:
 # it to `grok` would silently shrink the context window of an existing roster.
 # ─────────────────────────────────────────────────────────────────────
 aliases:
+  # Pre-rename keys from the reference benchmark recorded in README.md and
+  # docs/benchmarks.html. Without these, bench_cost.py marks those rows
+  # `unknown`, drops them from the total, and exits 1 — i.e. this repo's own
+  # documented historical run could not be costed. They price as `estimated`
+  # (older model versions under the same reviewer slot), which is exactly the
+  # weaker claim those rows warrant.
+  glm-5.1:             glm
+  minimax-m2.7:        minimax
   glm-5.2:             glm
   minimax-m3:          minimax
   kimi-k2.6:           kimi
