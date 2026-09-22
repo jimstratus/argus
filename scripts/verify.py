@@ -76,13 +76,28 @@ async def _main_async(args) -> int:
     elif args.profile:
         roster = cfg["profiles"][args.profile]["members"]
     elif args.roster:
-        roster = canonicalize_roster(cfg, [r.strip() for r in args.roster.split(",")])
+        roster = [r.strip() for r in args.roster.split(",")]
     else:
         roster = cfg["profiles"]["standard"]["members"]
 
+    # Canonicalize every source, not just --roster: a profile saved via
+    # --save-as can hold legacy version-named reviewers too, and those would
+    # otherwise miss the `n in reviewers` filter below.
+    roster = canonicalize_roster(cfg, roster)
+
     preference = resolve_route_preference(args.route_pref, cfg)
     timeout = 45
-    results = await asyncio.gather(*[_ping(n, reviewers[n], timeout, preference) for n in roster if n in reviewers])
+    # Never drop an unknown reviewer silently — this is a verification tool, and
+    # a name that vanishes here would let the run report success for a reviewer
+    # it never actually pinged. (Exactly how a delisted model slug stays hidden.)
+    unknown = [n for n in roster if n not in reviewers]
+    if unknown:
+        sys.stderr.write(
+            f"WARNING: not in registry, not verified: {', '.join(unknown)}\n"
+        )
+    roster = [n for n in roster if n in reviewers]
+
+    results = await asyncio.gather(*[_ping(n, reviewers[n], timeout, preference) for n in roster])
 
     if args.json:
         print(json.dumps(results, indent=2))

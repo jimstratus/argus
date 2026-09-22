@@ -184,7 +184,12 @@ reviewers:
     ctx: 2000000
     tier: paid
     privacy: ok
-    custom_only: true
+    # NOT custom_only, deliberately: `grok-4.20` was a normal reviewer before
+    # the version-free rename, and its alias resolves here. Gating this entry
+    # would make a saved profile (--save-as) holding the legacy name silently
+    # lose the reviewer — the alias would resolve and then the custom_only gate
+    # would drop it, since profile resolution is non-explicit. It is absent
+    # from every shipped profile, so nothing auto-includes it regardless.
     cost_per_m: { input: 1.25, output: 2.50 }
     # Deliberately NOT superseded by `grok`. Every newer Grok (4.3 -> 4.7)
     # drops to 500K-1M ctx; 4.20 is the only 2M window in the registry, which

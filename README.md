@@ -136,7 +136,7 @@ OpenRouter route; which one is tried first is governed by
 | `mimo` | aichat → OR `xiaomi/mimo-v2.6-pro` | 1M ctx |
 | `qwen` | aichat → OR `qwen/qwen3.8-max-0902` | 1M ctx, conservative |
 | `grok` | aichat → OR `x-ai/grok-4.7` | current xAI flagship, 500K ctx |
-| `grok-longctx` | aichat → OR `x-ai/grok-4.20` | **custom-only** — the only **2M**-ctx reviewer; kept because every newer Grok has a smaller window |
+| `grok-longctx` | aichat → OR `x-ai/grok-4.20` | the only **2M**-ctx reviewer; kept because every newer Grok has a smaller window. Not in any shipped profile — name it explicitly |
 | `deepseek-v3.2` | aichat → OR `deepseek/deepseek-v3.2` | **custom-only** — superseded by `deepseek` |
 | `gemini-or` | aichat → OR `google/gemini-3.8-flash` | 2s/call, best value |
 | `gemini` | `gemini` CLI (paid sub) | disabled pending Windows re-test of the tree-kill fix |

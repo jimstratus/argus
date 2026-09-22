@@ -148,6 +148,67 @@ def test_grok_legacy_alias_preserves_the_2m_window():
     assert cfg["reviewers"][target]["ctx"] == 2_000_000
 
 
+# Aliases whose LEGACY reviewer was already custom_only before the version-free
+# rename. For these, resolving to a custom_only target preserves the old
+# behaviour rather than regressing it, so they're exempt from the check below.
+ALREADY_CUSTOM_ONLY = {
+    "hermes-4.3", "opencode-minimax-m3", "opencode-glm-5.2", "copilot-gpt5",
+}
+
+
+def test_alias_does_not_newly_gate_a_previously_open_reviewer():
+    """An alias must not turn a formerly profile-eligible reviewer custom_only.
+
+    Regression: `grok-4.20` was a normal reviewer before the rename, and its
+    alias target `grok-longctx` was briefly marked `custom_only`. Profile
+    resolution is non-explicit, so a saved profile (--save-as) holding the
+    legacy name resolved the alias and *then* had the reviewer dropped by the
+    custom_only gate — silently losing it while advertising backward
+    compatibility.
+
+    Aliases in ALREADY_CUSTOM_ONLY are exempt: their legacy reviewers carried
+    the same gate, so nothing changed for them.
+    """
+    cfg = load_config()
+    trapped = [
+        f"{old} -> {new}"
+        for old, new in cfg.get("aliases", {}).items()
+        if old not in ALREADY_CUSTOM_ONLY
+        and cfg["reviewers"][new].get("custom_only")
+    ]
+    assert not trapped, (
+        "alias newly gates a reviewer behind custom_only, so a saved profile "
+        f"using the legacy name silently loses it: {trapped}"
+    )
+
+
+def test_saved_profile_with_legacy_names_keeps_every_reviewer():
+    """End-to-end guard for the same regression, via resolve_roster."""
+    cfg = load_config()
+    cfg = dict(cfg, profiles={**cfg["profiles"],
+                              "_saved": {"members": ["glm-5.2", "grok-4.20"]}})
+    roster, drops = resolve_roster(cfg, "profile", ["_saved"], "unknown")
+    assert roster == ["glm", "grok-longctx"], f"roster={roster} drops={drops}"
+    assert drops == []
+
+
+def test_verify_canonicalizes_every_roster_source():
+    """verify.py must alias profile members too, not just --roster.
+
+    Regression: the --profile branch passed members straight to a
+    `if n in reviewers` filter, so a saved profile holding legacy names
+    verified *nothing* and still reported success — the same silent-omission
+    failure mode that hid a delisted model slug.
+    """
+    import verify  # noqa: F401  (import guard: module must load cleanly)
+    source = (Path(__file__).resolve().parent.parent
+              / "scripts" / "verify.py").read_text(encoding="utf-8")
+    # Canonicalization must happen after the branch chain, not inside one arm.
+    assert "roster = canonicalize_roster(cfg, roster)" in source
+    # And unknown names must be reported, never dropped in silence.
+    assert "not in registry, not verified" in source
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-q"]))

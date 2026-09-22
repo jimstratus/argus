@@ -8,7 +8,7 @@ Multi-model code review skill. Dispatches diffs to a roster of LLM reviewers in 
 - **aichat** 0.30+ ([github.com/sigoden/aichat](https://github.com/sigoden/aichat))
 - **pip** packages: `pyyaml`, `psutil`
 - At least one CLI reviewer: `claude`, `codex`, `gemini`, `opencode`, or `copilot`
-- At least one API key: `OPENROUTER_API_KEY` (covers 9 of 15 reviewers)
+- At least one API key: `OPENROUTER_API_KEY` (covers 13 of 18 reviewers)
 
 ## Setup
 

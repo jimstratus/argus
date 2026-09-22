@@ -557,7 +557,7 @@ small set of standalone Python scripts.</p>
 
 <h2 id="features">What you get</h2>
 <div class="card-grid">
-  <div class="card"><h3><a href="reviewers.html">Frontier roster</a></h3><p>GLM&#8209;5.2, MiniMax&nbsp;M3, DeepSeek&nbsp;V4&nbsp;Pro, Kimi, Qwen, Grok, plus Codex / Claude / OpenCode CLIs.</p></div>
+  <div class="card"><h3><a href="reviewers.html">Frontier roster</a></h3><p>GLM&#8209;5.3, MiniMax&nbsp;M3, DeepSeek&nbsp;V4&nbsp;Pro, Kimi&nbsp;K3, Qwen3.8&#8209;Max, Grok&nbsp;4.7, plus Codex / Claude / OpenCode CLIs.</p></div>
   <div class="card"><h3><a href="configuration.html">Routing preference</a></h3><p>One knob picks OpenRouter-first (public default) or your own direct-API subscriptions first.</p></div>
   <div class="card"><h3><a href="architecture.html">Corroboration merge</a></h3><p>Confidence threshold + a +15 boost when reviewers agree, with &plusmn;3-line clustering.</p></div>
   <div class="card"><h3><a href="benchmarks.html">Benchmark mode</a></h3><p>Score reviewers against labeled fixtures (precision / recall / F1) to build a leaderboard.</p></div>
@@ -825,16 +825,17 @@ flowchart TD
 # -------------------------------------------------------------- reviewers --- #
 PAGES["reviewers"] = {
     "title": "Reviewers",
-    "desc": "The Argus reviewer registry: 15 frontier LLM reviewers with their routes and notes, including the dual-route GLM-5.3, MiniMax M3, and DeepSeek V4 Pro.",
+    "desc": "The Argus reviewer registry: 18 frontier LLM reviewers with their routes and notes, including the dual-route GLM-5.3, MiniMax M3, and DeepSeek V4 Pro.",
     "md_label": "View config.yaml",
     "md_url": BLOB + "/config.yaml",
     "body": r"""
-<p>The registry has <strong>15 reviewers</strong>. Three default-roster ones are <strong>dual-route</strong>
+<p>The registry has <strong>18 reviewers</strong>. Three default-roster ones are <strong>dual-route</strong>
 (a direct provider API plus OpenRouter) and are reordered by the
 <a href="configuration.html#routing">routing preference</a> (the custom-only <code>hermes</code> is
 dual-route too); the rest are single-route API reviewers or paid-CLI reviewers. Model versions are the headline of this
-release: <strong>GLM&#8209;5.2</strong>, <strong>MiniMax&nbsp;M3</strong>, and the new default
-<strong>DeepSeek&nbsp;V4&nbsp;Pro</strong>.</p>
+release: <strong>GLM&#8209;5.3</strong>, <strong>MiniMax&nbsp;M3</strong>, and the new default
+<strong>DeepSeek&nbsp;V4&nbsp;Pro&nbsp;0813</strong>. All model IDs, context lengths and prices were verified
+against the live OpenRouter catalog on <strong>2026&#8209;09&#8209;22</strong>.</p>
 
 <div class="table-wrap"><table>
 <thead><tr><th>Reviewer</th><th>Route(s)</th><th>Notes</th></tr></thead>
@@ -845,7 +846,7 @@ release: <strong>GLM&#8209;5.2</strong>, <strong>MiniMax&nbsp;M3</strong>, and t
 <tr><td><code>mimo</code></td><td>OpenRouter (<code>xiaomi/mimo-v2.6-pro</code>)</td><td>1M context window.</td></tr>
 <tr><td><code>qwen</code></td><td>OpenRouter (<code>qwen/qwen3.8-max-0902</code>)</td><td>1M ctx, conservative / high precision.</td></tr>
 <tr><td><code>grok</code></td><td>OpenRouter (<code>x-ai/grok-4.7</code>)</td><td>Current xAI flagship; 500K ctx, reasoning.</td></tr>
-<tr><td><code>grok-longctx</code></td><td>OpenRouter (<code>x-ai/grok-4.20</code>)</td><td><span class="badge gray">custom-only</span> the only <strong>2M</strong>-ctx reviewer &mdash; kept because every newer Grok has a smaller window.</td></tr>
+<tr><td><code>grok-longctx</code></td><td>OpenRouter (<code>x-ai/grok-4.20</code>)</td><td>The only <strong>2M</strong>-ctx reviewer &mdash; kept because every newer Grok has a smaller window. Not in any shipped profile; name it explicitly.</td></tr>
 <tr><td><code>deepseek</code> <span class="badge">dual-route</span> <span class="badge green">default DeepSeek</span></td><td>DeepSeek direct + OpenRouter (<code>deepseek/deepseek-v4-pro-0813</code>)</td><td>1.6T MoE, 49B active, ~1M ctx; reasoning + security.</td></tr>
 <tr><td><code>deepseek-v3.2</code></td><td>OpenRouter</td><td><span class="badge gray">custom-only</span> superseded by v4-pro.</td></tr>
 <tr><td><code>hermes</code> <span class="badge">dual-route</span></td><td>Nous direct + OpenRouter fallback</td><td><span class="badge gray">custom-only</span></td></tr>
@@ -1222,9 +1223,10 @@ PAGES["faq"] = {
 <p>Short answers to the things people ask first. For depth, follow the links into the rest of the KB.</p>
 
 <details class="faq" open><summary>What models does Argus use?</summary><div class="faq-body">
-<p>A registry of 15 frontier reviewers &mdash; GLM&#8209;5.2, MiniMax&nbsp;M3, DeepSeek&nbsp;V4&nbsp;Pro,
-Kimi&nbsp;K2.6, MiMo&#8209;V2&#8209;Pro, Qwen&nbsp;3.6&#8209;Plus, Grok&nbsp;4.20, plus the Codex, Claude, and
-OpenCode CLIs. See the full <a href="reviewers.html">reviewer roster</a>.</p>
+<p>A registry of 18 frontier reviewers &mdash; GLM&#8209;5.3, MiniMax&nbsp;M3,
+DeepSeek&nbsp;V4&nbsp;Pro&nbsp;0813, Kimi&nbsp;K3, MiMo&#8209;V2.6&#8209;Pro, Qwen3.8&#8209;Max,
+Grok&nbsp;4.7 (plus Grok&nbsp;4.20 for a 2M window), plus the Codex, Claude, and OpenCode CLIs.
+See the full <a href="reviewers.html">reviewer roster</a>.</p>
 </div></details>
 
 <details class="faq"><summary>Do I need all the API keys?</summary><div class="faq-body">
@@ -1290,7 +1292,7 @@ PAGES["glossary"] = {
 <p>Short definitions for the vocabulary used across the Argus docs.</p>
 <dl class="gloss">
 <dt>Reviewer</dt>
-<dd>A single LLM (via an API route or a CLI) that examines the diff and returns findings. The 15 reviewers live in the <a href="reviewers.html">registry</a>.</dd>
+<dd>A single LLM (via an API route or a CLI) that examines the diff and returns findings. The 18 reviewers live in the <a href="reviewers.html">registry</a>.</dd>
 
 <dt>Route</dt>
 <dd>How a reviewer is reached &mdash; e.g. a direct provider API (z.ai, MiniMax, DeepSeek), OpenRouter, or a paid CLI. Dual-route reviewers have more than one.</dd>
