@@ -324,6 +324,29 @@ def test_bench_cost_does_not_call_a_counted_row_excluded():
     assert "partially priced" in src
 
 
+def test_a_lower_bound_total_always_fails_the_run():
+    """If any spend is missing from the TOTAL, the run must exit non-zero.
+
+    Regression: splitting `unpriced` into `partial` (row counted, some calls
+    unpriced) and `unpriced` (row excluded entirely) fixed the wording but
+    left the exit status keyed off `unpriced` alone. A partially priced run
+    then printed "the TOTAL is a LOWER BOUND" and exited 0 — and the exit
+    code is the only part of that sentence automation reads.
+
+    The two flags differ in HOW MUCH is missing, not in WHETHER anything is,
+    so both must fail the run.
+    """
+    src = (Path(__file__).resolve().parent.parent
+           / "scripts" / "bench_cost.py").read_text(encoding="utf-8")
+    assert "if unpriced or partial:" in src, (
+        "the exit status must account for partially priced rows, not just "
+        "fully excluded ones"
+    )
+    # And the failing branch is the one that returns 1.
+    tail = src[src.index("if unpriced or partial:"):]
+    assert "return 1" in tail.split("return 0")[0]
+
+
 def test_rates_for_docstring_lists_every_status_it_returns():
     """The documented contract must match the values callers can receive."""
     import bench_cost

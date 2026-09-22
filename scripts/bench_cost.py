@@ -236,7 +236,18 @@ def main() -> int:
         sys.stderr.write(
             "WARNING: could not be priced, excluded from the total: "
             f"{', '.join(unpriced)}\n"
-            "The TOTAL above is therefore a LOWER BOUND, not the run cost.\n"
+        )
+
+    # ONE rule, and the exit code is the only part of it automation can read:
+    # if any spend is missing from the TOTAL, the TOTAL is a lower bound and
+    # this run fails. `partial` and `unpriced` differ in how much is missing
+    # (some calls vs the whole row) — not in whether anything is, so both
+    # belong here. Keying the exit off `unpriced` alone let a partially
+    # priced run print "LOWER BOUND" and still exit 0, which is precisely
+    # the "complete report" a caller would infer.
+    if unpriced or partial:
+        sys.stderr.write(
+            "The TOTAL above is a LOWER BOUND, not the run cost.\n"
         )
         return 1
     return 0
