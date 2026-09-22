@@ -192,6 +192,23 @@ def test_saved_profile_with_legacy_names_keeps_every_reviewer():
     assert drops == []
 
 
+def test_verify_fails_when_a_name_was_never_verified():
+    """An unknown reviewer must fail the run, not merely warn.
+
+    Regression: filtering unknown names out left an all-unknown roster with
+    `results == []`, and `any([])` is False — so the exit status was 0 after
+    verifying nothing. A caller gating on that exit code (CI, a wrapper
+    script) would read it as "all routes reachable", which is the same
+    silent-success trap the filter was added to close, one level up.
+    """
+    source = (Path(__file__).resolve().parent.parent
+              / "scripts" / "verify.py").read_text(encoding="utf-8")
+    assert 'return 1 if unknown or any(not r["ok"] for r in results) else 0' in source, (
+        "verify.py exit status must account for unknown names, not just "
+        "failed pings"
+    )
+
+
 def test_verify_canonicalizes_every_roster_source():
     """verify.py must alias profile members too, not just --roster.
 
@@ -206,7 +223,7 @@ def test_verify_canonicalizes_every_roster_source():
     # Canonicalization must happen after the branch chain, not inside one arm.
     assert "roster = canonicalize_roster(cfg, roster)" in source
     # And unknown names must be reported, never dropped in silence.
-    assert "not in registry, not verified" in source
+    assert "FAIL: not in registry, not verified" in source
 
 
 if __name__ == "__main__":

@@ -20,8 +20,8 @@ defaults:
   profile: standard
   # ───────────────────────────────────────────────────────────────────
   # Route preference — which provider a reviewer tries FIRST when it has
-  # BOTH a direct-API route and an OpenRouter route (currently glm-5.2,
-  # minimax-m3, deepseek-v4-pro).
+  # BOTH a direct-API route and an OpenRouter route (currently glm,
+  # minimax, deepseek).
   #   openrouter  → OpenRouter first, direct API as fallback  (PUBLIC DEFAULT:
   #                 one OPENROUTER_API_KEY covers most reviewers)
   #   direct      → each provider's own API first, OpenRouter as fallback
@@ -406,7 +406,7 @@ aichat_clients:
             reasoning:
               exclude: true
               # Cap the provider's internal reasoning budget. Without this,
-              # reasoning models (z-ai/glm-5.2, minimax/minimax-m3) can
+              # reasoning models (z-ai/glm-5.3, minimax/minimax-m3) can
               # spend 3+ minutes thinking on a 30K-token diff even when we
               # don't want to see the thoughts. 2000 tokens ≈ 30-60s budget.
               max_tokens: 2000

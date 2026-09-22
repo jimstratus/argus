@@ -93,7 +93,7 @@ async def _main_async(args) -> int:
     unknown = [n for n in roster if n not in reviewers]
     if unknown:
         sys.stderr.write(
-            f"WARNING: not in registry, not verified: {', '.join(unknown)}\n"
+            f"FAIL: not in registry, not verified: {', '.join(unknown)}\n"
         )
     roster = [n for n in roster if n in reviewers]
 
@@ -107,7 +107,12 @@ async def _main_async(args) -> int:
             status = "OK" if r["ok"] else "FAIL"
             note = r["note"] or r["stdout_preview"][:60]
             print(f"{status:<6} {r['latency_sec']:>7.2f}  {r['reviewer']:<16} {r['route']:<14} {note}")
-    return 1 if any(not r["ok"] for r in results) else 0
+    # An unknown name is a failure, not a warning: with an all-unknown roster
+    # `results` is empty and `any([])` is False, so keying the exit status off
+    # results alone would exit 0 having verified nothing at all. A caller
+    # gating on this exit code (CI, a wrapper script) would read that as
+    # "all routes reachable" — the same silent-success trap one level up.
+    return 1 if unknown or any(not r["ok"] for r in results) else 0
 
 
 def main() -> int:
