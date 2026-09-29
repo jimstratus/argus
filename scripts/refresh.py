@@ -115,14 +115,10 @@ def collect_or_pins(cfg: dict) -> tuple[list[OrPin], list[dict]]:
             reason = "no OpenRouter route (direct/CLI-only — catalog cannot see it)"
             skipped.append({"reviewer": name, "reason": reason})
             continue
-        # Metadata ownership: primary if it is OR, else first OR route.
-        owner_which = (
-            "primary"
-            if or_routes[0][0] == "primary"
-            else or_routes[0][0]
-        )
-        # If primary is not OR, or_routes[0] is the first fallback — that's fine.
-        # But if primary IS OR it will be first because we iterate primary then fallback.
+        # Metadata ownership: first OR route in declaration order. We append
+        # primary before fallback above, so primary wins when it is OR; otherwise
+        # the first OR fallback owns the reviewer-level ctx/cost pin.
+        owner_which = or_routes[0][0]
         pin_ctx = spec.get("ctx")
         pin_cost = spec.get("cost_per_m")
         if not isinstance(pin_cost, dict):
@@ -179,10 +175,16 @@ def _cost_matches(pin: dict | None, catalog: dict | None, tolerance: float) -> b
     if catalog is None:
         return False
     try:
+        # Quantize to 0.01 $/M before comparing so an exact-tolerance delta
+        # (e.g. 0.43 vs 0.45 with tolerance 0.02) is not rejected by binary
+        # float noise like 0.020000000000000018.
+        def _q(v: float) -> int:
+            return round(float(v) * 100)
+
+        slack = _q(tolerance)
         return (
-            abs(float(pin.get("input", 0)) - float(catalog.get("input", 0))) <= tolerance
-            and abs(float(pin.get("output", 0)) - float(catalog.get("output", 0)))
-            <= tolerance
+            abs(_q(pin.get("input", 0)) - _q(catalog.get("input", 0))) <= slack
+            and abs(_q(pin.get("output", 0)) - _q(catalog.get("output", 0))) <= slack
         )
     except (TypeError, ValueError):
         return False
@@ -240,7 +242,14 @@ def diff_pins(
 
         if ctx_ok and cost_ok:
             status = "ok"
-            note = "listed; ctx/cost match"
+            if pin.pin_cost is None and pin.pin_ctx is None:
+                note = "listed (no ctx/cost pin to compare)"
+            elif pin.pin_cost is None:
+                note = "listed; ctx match (cost not pinned — CLI/null)"
+            elif pin.pin_ctx is None:
+                note = "listed; cost match (ctx not pinned)"
+            else:
+                note = "listed; ctx/cost match"
         elif not ctx_ok and not cost_ok:
             status = "both_mismatch"
             note = "ctx and cost_per_m differ from catalog"
@@ -283,7 +292,7 @@ def run_refresh(
     if catalog is None:
         try:
             catalog = fetch_catalog(catalog_url)
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError) as e:
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as e:
             report.fetch_error = f"{type(e).__name__}: {e}"
             return report
 

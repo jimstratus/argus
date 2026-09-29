@@ -273,6 +273,38 @@ def test_cost_tolerance():
     assert diff_pins(pins, CATALOG, cost_tolerance=0.005)[0].status == "cost_mismatch"
 
 
+def test_cost_tolerance_exact_boundary_accepted():
+    """0.43 vs 0.45 with tolerance 0.02 must be OK despite float noise."""
+    pins = [
+        OrPin(
+            "mimo",
+            "primary",
+            "xiaomi/mimo-v2.6-pro",
+            True,
+            1048576,
+            {"input": 0.45, "output": 0.89},  # +0.02 / +0.02 vs catalog 0.43/0.87
+        )
+    ]
+    assert diff_pins(pins, CATALOG, cost_tolerance=0.02)[0].status == "ok"
+
+
+def test_null_cost_ok_note_does_not_claim_cost_match():
+    pins = [
+        OrPin(
+            "codex",
+            "fallback",
+            "openai/gpt-5.3-codex",
+            True,
+            400000,
+            None,
+        )
+    ]
+    f = diff_pins(pins, CATALOG)[0]
+    assert f.status == "ok"
+    assert "cost match" not in f.note
+    assert "cost not pinned" in f.note
+
+
 def test_shipped_config_collects_without_error():
     """Smoke: real config.yaml is parseable and yields at least one OR pin."""
     from _common import load_config
