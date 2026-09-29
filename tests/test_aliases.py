@@ -913,7 +913,6 @@ def test_benchmark_records_the_model_that_actually_served_each_run():
     import asyncio
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-    import benchmark
 
     primary = {"route": "primary_route", "model": "vendor/failing"}
     fallback = {"route": "fallback_route", "model": "vendor/serving"}
@@ -927,15 +926,12 @@ def test_benchmark_records_the_model_that_actually_served_each_run():
                     "stderr": "boom", "latency_sec": 1.0}
 
     ok = '{"findings": []}'
-    adapters = {"primary_route": _Adapter(1, ""),
-                "fallback_route": _Adapter(0, ok)}
-    orig = benchmark.adapters
-    benchmark.adapters = adapters
-    try:
-        d = asyncio.run(benchmark._dispatch(
-            "glm", {"primary": primary, "fallback": fallback}, "p", 5))
-    finally:
-        benchmark.adapters = orig
+    stubs = {"primary_route": _Adapter(1, ""),
+             "fallback_route": _Adapter(0, ok)}
+    from _common import dispatch_with_fallback
+    d = asyncio.run(dispatch_with_fallback(
+        "glm", {"primary": primary, "fallback": fallback}, "p", 5,
+        get_adapter=stubs.get))
 
     assert d["fallback_used"] is True
     assert d["model"] == "vendor/serving", (
@@ -985,11 +981,13 @@ def _dispatch_model(primary_ok: bool, fallback_ok: bool | None):
     """Run _dispatch with stub adapters and return the model it attributes.
 
     `fallback_ok=None` means the reviewer has no fallback route at all.
+    Uses get_adapter injection (issue #22 slice 1 moved the pipeline into
+    _common.dispatch_with_fallback; benchmark.adapters is gone).
     """
     import asyncio
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-    import benchmark
+    from _common import dispatch_with_fallback
 
     class _Adapter:
         def __init__(self, ok):
@@ -1006,12 +1004,8 @@ def _dispatch_model(primary_ok: bool, fallback_ok: bool | None):
         spec["fallback"] = {"route": "f", "model": "vendor/fallback"}
         stubs["f"] = _Adapter(fallback_ok)
 
-    orig = benchmark.adapters
-    benchmark.adapters = stubs
-    try:
-        return asyncio.run(benchmark._dispatch("x", spec, "p", 5))
-    finally:
-        benchmark.adapters = orig
+    return asyncio.run(dispatch_with_fallback(
+        "x", spec, "p", 5, get_adapter=stubs.get))
 
 
 def test_dispatch_attributes_no_model_when_no_route_served():
@@ -1045,20 +1039,16 @@ def test_dispatch_still_attributes_an_unparseable_response():
     import asyncio
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-    import benchmark
 
     class _Prose:
         async def send(self, prompt, route, timeout):
             return {"exit_code": 0, "stdout": "I think the code looks fine!",
                     "stderr": "", "latency_sec": 1.0}
 
-    orig = benchmark.adapters
-    benchmark.adapters = {"p": _Prose()}
-    try:
-        d = asyncio.run(benchmark._dispatch(
-            "x", {"primary": {"route": "p", "model": "vendor/primary"}}, "p", 5))
-    finally:
-        benchmark.adapters = orig
+    from _common import dispatch_with_fallback
+    d = asyncio.run(dispatch_with_fallback(
+        "x", {"primary": {"route": "p", "model": "vendor/primary"}}, "p", 5,
+        get_adapter={"p": _Prose()}.get))
 
     assert d["parse_error"] is True
     assert d["model"] == "vendor/primary"
@@ -1076,20 +1066,16 @@ def test_dispatch_never_records_an_empty_error_for_a_failure():
     import asyncio
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-    import benchmark
 
     class _SilentFailure:
         async def send(self, prompt, route, timeout):
             return {"exit_code": 137, "stdout": "", "stderr": "  \n ",
                     "latency_sec": 1.0}
 
-    orig = benchmark.adapters
-    benchmark.adapters = {"p": _SilentFailure()}
-    try:
-        d = asyncio.run(benchmark._dispatch(
-            "x", {"primary": {"route": "p", "model": "vendor/primary"}}, "p", 5))
-    finally:
-        benchmark.adapters = orig
+    from _common import dispatch_with_fallback
+    d = asyncio.run(dispatch_with_fallback(
+        "x", {"primary": {"route": "p", "model": "vendor/primary"}}, "p", 5,
+        get_adapter={"p": _SilentFailure()}.get))
 
     assert d["model"] is None
     assert d["error"], "a failed run must record a non-empty error"

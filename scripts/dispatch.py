@@ -18,78 +18,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
-    load_config, build_prompt, estimate_tokens, extract_json,
-    normalize_findings, resolve_roster, resolve_routes, resolve_route_preference,
+    load_config, build_prompt, estimate_tokens,
+    resolve_roster, resolve_route_preference, dispatch_with_fallback,
 )
 from detect_host import detect as detect_host
-import adapters
 
 
 async def _dispatch_one(name: str, spec: dict, prompt: str, timeout: int,
                         preference: str = "openrouter") -> dict:
     """Try primary; if primary fails, try fallback. Return structured result.
 
-    Route order is resolved from the reviewer's declared routes by
-    `preference` (openrouter|direct) — see _common.resolve_routes.
+    Thin wrapper around ``_common.dispatch_with_fallback`` (issue #22 slice 1)
+    so dispatch.py and benchmark.py cannot drift apart again.
     """
-    result: dict = {"name": name, "findings": []}
-
-    primary_cfg, fallback_cfg = resolve_routes(spec, preference)
-    primary_cfg = primary_cfg or {}
-    primary_route = primary_cfg.get("route")
-    adapter = adapters.get(primary_route)
-
-    if adapter is None:
-        result["error"] = f"unknown route: {primary_route}"
-        return result
-
-    r = await adapter.send(prompt, primary_cfg, timeout)
-    primary_latency = r.get("latency_sec", 0.0)
-    primary_exit = r.get("exit_code", 0)
-    primary_err = ""
-    result["route"] = r["route"]
-    result["exit_code"] = primary_exit
-    result["primary_exit_code"] = primary_exit
-    result["primary_latency_sec"] = round(primary_latency, 2)
-    result["fallback_latency_sec"] = 0.0
-    result["latency_sec"] = round(primary_latency, 2)
-    result["fallback_used"] = False
-
-    stdout = r["stdout"]
-    stderr = r["stderr"]
-
-    if r["exit_code"] != 0:
-        primary_err = (stderr or "")[:200]
-        result["primary_error"] = primary_err
-        # Try fallback
-        fb_cfg = fallback_cfg
-        if fb_cfg:
-            fb_route = fb_cfg.get("route")
-            fb_adapter = adapters.get(fb_route)
-            if fb_adapter is not None:
-                r2 = await fb_adapter.send(prompt, fb_cfg, timeout)
-                fallback_latency = r2.get("latency_sec", 0.0)
-                result["fallback_used"] = True
-                result["fallback_route"] = r2["route"]
-                result["exit_code"] = r2["exit_code"]
-                result["fallback_latency_sec"] = round(fallback_latency, 2)
-                result["latency_sec"] = round(primary_latency + fallback_latency, 2)
-                stdout, stderr = r2["stdout"], r2["stderr"]
-
-    if result["exit_code"] != 0:
-        result["error"] = (stderr or "")[:800].strip() or "non-zero exit"
-        return result
-
-    parsed = extract_json(stdout)
-    # Require the schema's findings list — extract_json can recover an
-    # arbitrary inner object from prose, which is still a failed review.
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("findings"), list):
-        result["parse_error"] = True
-        result["raw_preview"] = stdout[:2000]
-        return result
-
-    result["findings"] = normalize_findings(parsed["findings"])
-    return result
+    return await dispatch_with_fallback(name, spec, prompt, timeout, preference)
 
 
 async def _main_async(args) -> int:
