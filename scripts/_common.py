@@ -460,6 +460,212 @@ def primary_is_openrouter(spec: dict, preference: str = "openrouter") -> bool:
     return bool(p) and p.get("client") == "openrouter"
 
 
+def price_tokens(
+    input_tokens: int | float,
+    output_tokens: int | float,
+    rates: dict | None,
+) -> float:
+    """USD cost at $/M rates. ``rates is None`` / empty (CLI sub) → 0.0.
+
+    Single arithmetic used by ``estimate_roster_cost``, ``bench_cost.py``, and
+    any other cost path — do not re-implement the ``/ 1_000_000`` formula.
+    """
+    if not rates:
+        return 0.0
+    return (
+        (input_tokens / 1_000_000) * float(rates["input"])
+        + (output_tokens / 1_000_000) * float(rates["output"])
+    )
+
+
+def rates_for(cfg: dict, name: str, recorded: dict | None = None,
+              fallback_calls: int = 0) -> tuple[str, dict | None, str]:
+    """Resolve a recorded benchmark reviewer name to its billing rates.
+
+    Returns (canonical_name, cost_per_m_or_None, status) where status is one of:
+
+      'recorded'  rates came from the artifact — what the run was billed at
+      'estimated' rates came from the CURRENT registry; the artifact predates
+                  rate snapshotting, so this is today's price for an older run
+      'mixed'     some calls were served by the FALLBACK route, whose price
+                  config.yaml does not carry (it stores one rate per reviewer,
+                  the primary's). Returned rates price the primary-served
+                  calls only; the fallback calls cannot be priced at all
+      'cli-sub'   no per-token price, and no fallback was used — genuinely $0
+      'unknown'   not in this registry under any name AND no recorded rates —
+                  cannot be priced at all. A reviewer merely deleted from
+                  config.yaml still prices from its artifact's own rates
+
+    Benchmark artifacts are historical: their `reviewer` fields hold whatever
+    the registry called that reviewer at record time, so a pre-2026-09-22 run
+    carries version-named keys like `glm-5.2`. Those are not registry keys any
+    more, so a direct lookup misses, `cost_per_m` comes back None, and the row
+    would be printed as a $0 paid-CLI subscription — silently understating what
+    the run actually cost. Hence the alias resolution here.
+
+    'cli-sub' and 'unknown' both cost $0 but mean opposite things: the first is
+    a reviewer that genuinely has no per-token price, the second is a name this
+    registry cannot price at all. Collapsing them is how a missing reviewer
+    disappears into a total that looks complete.
+    """
+    canonical = canonical_reviewer(cfg, name)
+    spec = cfg["reviewers"].get(canonical)
+
+    # 'unknown' means unpriceable, which is only true when the registry has
+    # never heard of this name AND the artifact carries no rates. A reviewer
+    # deleted from config.yaml is still fully priceable from its own recorded
+    # rates — discarding them on a registry miss would throw away the exact
+    # number the snapshot exists to preserve.
+    if spec is None and not recorded:
+        return canonical, None, "unknown"
+
+    # Rates recorded in the artifact win over the registry: they are what the
+    # run was actually billed at. qwen-3.6-plus ran at $0.50/$2.00; today's
+    # `qwen` is qwen3.8-max at $2.00/$6.00 — pricing the old run at the new
+    # rate is wrong by 4x, in the opposite direction from the $0 it used to
+    # report.
+    rates = recorded or (spec.get("cost_per_m") if spec else None)
+
+    # Fallback is checked BEFORE the rate source, because no rate in hand
+    # describes a fallback call. config.yaml carries one price per reviewer —
+    # the PRIMARY's — so a `kimi` run that fell back bills those calls at
+    # kimi-k3's $3/$15 when kimi-k2.7-code served them at $0.71/$3.21.
+    # Returning 'recorded' there would label a wrong number exact.
+    #
+    # `rates` still comes back non-None so the caller can price the calls the
+    # primary DID serve; only the fallback calls are unpriceable.
+    if fallback_calls:
+        return canonical, rates, "mixed"
+
+    if recorded:
+        return canonical, recorded, "recorded"
+    if rates:
+        # 'estimated' is deliberately distinct from 'recorded': same
+        # arithmetic, weaker claim. Artifacts written before rate snapshotting
+        # cannot be costed exactly, and saying so is better than quietly
+        # implying they can.
+        return canonical, rates, "estimated"
+    return canonical, None, "cli-sub"
+
+
+def estimate_roster_cost(
+    cfg: dict,
+    roster: list[str],
+    *,
+    input_tokens_per_unit: int | list[int],
+    output_tokens_per_call: int | None = None,
+    calls_per_unit: int = 1,
+) -> dict:
+    """Estimate USD spend for a roster against one or more input-token units.
+
+    Shared by ``estimate_cost.py`` (one shared diff) and ``benchmark.py``'s
+    pre-flight gate (per-fixture token counts). Issue #22 slice 2 — the three
+    hand-synced copies of the $/M formula lived in estimate_cost, the
+    benchmark inline gate, and bench_cost; do not re-implement it.
+
+    ``bench_cost.py`` prices *historical* artifacts (recorded rates, mixed
+    fallback) via ``rates_for`` + ``price_tokens`` instead of this helper.
+
+    Parameters
+    ----------
+    input_tokens_per_unit
+        A single int (same prompt for every billed unit — estimate_cost) or a
+        list of per-unit input-token estimates (one per fixture — benchmark).
+        Each unit is billed ``calls_per_unit`` times.
+    output_tokens_per_call
+        Defaults to ``defaults.default_output_tokens_est``.
+    calls_per_unit
+        Multiplier per unit (``runs_per_fixture * fixtures`` collapsed into
+        one unit for estimate_cost, or ``runs`` per fixture for benchmark).
+
+    Rates come from the CURRENT registry via ``rates_for`` (so aliases
+    resolve). Reviewers with ``cost_per_m: null`` are $0 with note
+    ``"paid CLI sub"``. Names missing from the registry are $0 with note
+    ``"unknown"`` — callers that treat unknowns as hard errors
+    (``estimate_cost.py``) must reject them before calling.
+
+    Returns
+    -------
+    dict::
+
+        {
+          "per_reviewer": [
+            {"reviewer": str, "cost_usd": float, "calls": int,
+             "per_call_usd": float | None,  # set when a single unit size
+             "note": str | None},
+            ...
+          ],
+          "total_usd": float,           # unrounded sum; callers round
+          "output_tokens_per_call": int,
+          "calls_per_unit": int,
+          "n_units": int,
+        }
+    """
+    d = cfg.get("defaults", {})
+    out_tok = (
+        int(output_tokens_per_call)
+        if output_tokens_per_call is not None
+        else int(d["default_output_tokens_est"])
+    )
+    if isinstance(input_tokens_per_unit, (list, tuple)):
+        units = [int(u) for u in input_tokens_per_unit]
+    else:
+        units = [int(input_tokens_per_unit)]
+    n_units = len(units)
+    calls_per_unit = int(calls_per_unit)
+    total_calls = n_units * calls_per_unit
+
+    rows: list[dict] = []
+    total = 0.0
+    single_unit = n_units == 1
+
+    for name in roster:
+        _canonical, rates, status = rates_for(cfg, name)
+        if status == "unknown":
+            rows.append({
+                "reviewer": name,
+                "cost_usd": 0.0,
+                "calls": total_calls,
+                "per_call_usd": None,
+                "note": "unknown",
+            })
+            continue
+        if status == "cli-sub" or not rates:
+            rows.append({
+                "reviewer": name,
+                "cost_usd": 0.0,
+                "calls": total_calls,
+                "per_call_usd": None,
+                "note": "paid CLI sub",
+            })
+            continue
+
+        cost = 0.0
+        per_call: float | None = None
+        for u in units:
+            pc = price_tokens(u, out_tok, rates)
+            cost += pc * calls_per_unit
+            if single_unit:
+                per_call = pc
+        total += cost
+        row: dict = {
+            "reviewer": name,
+            "cost_usd": cost,
+            "calls": total_calls,
+            "per_call_usd": per_call,
+            "note": None,
+        }
+        rows.append(row)
+
+    return {
+        "per_reviewer": rows,
+        "total_usd": total,
+        "output_tokens_per_call": out_tok,
+        "calls_per_unit": calls_per_unit,
+        "n_units": n_units,
+    }
+
+
 async def dispatch_with_fallback(
     name: str,
     spec: dict,
