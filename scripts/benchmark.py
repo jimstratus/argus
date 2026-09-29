@@ -124,6 +124,8 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
     if adapter is None:
         return {"findings": [], "latency_sec": 0.0, "primary_latency_sec": 0.0,
                 "fallback_latency_sec": 0.0, "fallback_used": False,
+                # Nothing ran, so no model served this call.
+                "model": None,
                 "exit_code": 1, "primary_exit_code": 1, "primary_error": "",
                 "parse_error": False,
                 "error": f"no adapter for {primary.get('route')}"}
@@ -152,6 +154,14 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
             findings = normalize_findings(parsed["findings"])
         else:
             parse_error = True
+    # The route that actually produced the scored output, or None when
+    # nothing did. Derived from the FINAL exit code, not from which route was
+    # tried last: when the primary fails and the fallback fails too, no model
+    # served this call, and recording the fallback's slug would attribute a
+    # zero score to a model that returned nothing. A parse error is not this
+    # case — the model did produce output, it was just unusable, and that
+    # belongs on its record.
+    served = (fb if fallback_used else primary) if r["exit_code"] == 0 else None
     total_latency = primary_latency + fallback_latency
     return {
         "findings": findings,
@@ -159,11 +169,22 @@ async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
         "primary_latency_sec": round(primary_latency, 2),
         "fallback_latency_sec": round(fallback_latency, 2),
         "fallback_used": fallback_used,
+        # The model that served THIS call. A fallback-served score must not be
+        # filed under the model that failed, or stale-model reporting blames
+        # the wrong slug for the number it prints.
+        "model": (served or {}).get("model"),
         "exit_code": r["exit_code"],
         "primary_exit_code": primary_exit,
         "primary_error": primary_err,
         "parse_error": parse_error,
-        "error": (r.get("stderr") or "")[:200] if r["exit_code"] != 0 else None,
+        # Never an EMPTY string for a failure. _write_history stores this
+        # column verbatim, and stats.py distinguishes "this run errored" from
+        # "this row predates model recording" by whether it is non-empty — so
+        # a route that exits non-zero with nothing on stderr would otherwise
+        # be filed as a successful legacy row and earn a false `?` marker.
+        "error": (((r.get("stderr") or "").strip()[:200]
+                   or f"exit {r['exit_code']} with no stderr")
+                  if r["exit_code"] != 0 else None),
     }
 
 
@@ -185,6 +206,9 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                 run_data.append({
                     "run_idx": idx, "n_findings": 0, "latency_sec": 0.0,
                     "exit_code": 137, "parse_error": False, "error": "wall-cap exceeded",
+                    # Nothing ran, so no model served. Explicit, not absent:
+                    # a missing key used to be backfilled with the primary.
+                    "model": None,
                     "tp": 0, "fp": 0, "fn": len(fx["ground_truth"].get("issues", [])),
                     "precision": 0.0, "recall": 0.0, "f1": 0.0,
                 })
@@ -196,7 +220,8 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
             except Exception as e:
                 await _log_progress(f"{name:<16} {fx['name']:<18} run {idx+1}/{runs}  EXCEPTION: {type(e).__name__}: {str(e)[:80]}")
                 d = {"findings": [], "latency_sec": 0.0, "exit_code": 1,
-                     "parse_error": False, "error": f"{type(e).__name__}: {e}"}
+                     "parse_error": False, "model": None,
+                     "error": f"{type(e).__name__}: {e}"}
             if d.get("exit_code", 1) != 0 or d.get("parse_error"):
                 # A failed or unparseable call is not "correctly found nothing" —
                 # zero-score it so broken reviewers can't earn F1=1.0 on clean-baseline.
@@ -211,6 +236,13 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                 "exit_code": d.get("exit_code", 1),
                 "parse_error": d.get("parse_error", False),
                 "error": d.get("error"),
+                # Which route actually billed this call. A CLI-sub reviewer
+                # that fell back to its metered OpenRouter route spent real
+                # money, and the reviewer-level cost_per_m (null) does not
+                # say so.
+                "fallback_used": d.get("fallback_used", False),
+                # Per-run, because a fallback moves it mid-reviewer.
+                "model": d.get("model"),
                 **scored,
             })
             for f in d["findings"]:
@@ -232,13 +264,40 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
 
     nf = len(per_fixture) or 1
     await _log_progress(f"{name:<16} *** reviewer complete ({nf} fixtures × {runs} runs)")
+    # Route/billing snapshot for the artifact (see the comment on the dump).
+    _snap_primary, _snap_fb = resolve_routes(spec, preference)
+    _fallback_calls = sum(
+        1 for fr in per_fixture for r in fr["runs"] if r.get("fallback_used")
+    )
+
     # Incremental per-reviewer JSON (tailable) if ts provided
     if ts:
         try:
             reviewer_dir = BENCHMARKS_DIR / ts / "per_reviewer"
             reviewer_dir.mkdir(parents=True, exist_ok=True)
             (reviewer_dir / f"{name}.json").write_text(
-                json.dumps({"reviewer": name, "fixtures": per_fixture}, indent=2),
+                json.dumps({
+                    "reviewer": name,
+                    # Snapshot what this run was actually priced at. Rates and
+                    # model pins drift, and reviewers get renamed, so an
+                    # artifact that records only a name cannot be costed
+                    # accurately later — the registry it is read against is not
+                    # the registry it ran under. bench_cost.py prefers these.
+                    #
+                    # `rates` is the PRIMARY route's price. That is not always
+                    # what billed: a CLI-sub reviewer (cost_per_m: null) whose
+                    # CLI failed falls back to a metered OpenRouter route and
+                    # spends real money. config.yaml carries one price per
+                    # reviewer, so the fallback's rate is not knowable here —
+                    # record the fallback usage instead so bench_cost.py can
+                    # say "mixed billing, not priced" rather than "$0".
+                    "rates": spec.get("cost_per_m"),
+                    "model": (_snap_primary or {}).get("model"),
+                    "fallback_route": (_snap_fb or {}).get("model"),
+                    "fallback_calls": _fallback_calls,
+                    "recorded_at": ts,
+                    "fixtures": per_fixture,
+                }, indent=2),
                 encoding="utf-8",
             )
         except Exception as e:
@@ -251,6 +310,9 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
     }
     return {
         "reviewer": name,
+        # Carried into history.db so a score can be matched to the model that
+        # produced it, not just to the reviewer key that happened to run it.
+        "model": (_snap_primary or {}).get("model"),
         "fixtures": per_fixture,
         "overall": overall,
         "_keys_per_fixture": findings_keys_per_fixture,  # internal; not serialized
@@ -292,10 +354,16 @@ def _write_history(results: list[dict], ts: str) -> None:
             for fr in r["fixtures"]:
                 for rd in fr["runs"]:
                     conn.execute(
-                        'INSERT OR REPLACE INTO benchmarks (ts, reviewer, fixture, run_idx, "precision", recall, f1, n_findings, latency_sec, error) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                        'INSERT OR REPLACE INTO benchmarks (ts, reviewer, fixture, run_idx, "precision", recall, f1, n_findings, latency_sec, error, model) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                         (ts, r["reviewer"], fr["fixture"], rd["run_idx"],
                          rd["precision"], rd["recall"], rd["f1"],
-                         rd["n_findings"], rd["latency_sec"], (rd["error"] or "")[:400]),
+                         rd["n_findings"], rd["latency_sec"], (rd["error"] or "")[:400],
+                         # The model that served THIS run, or NULL. There is
+                         # no reviewer-level floor: a wall-capped, crashed or
+                         # no-adapter run served nothing, and backfilling the
+                         # primary slug made those zero scores look like
+                         # measurements of a model that never ran.
+                         rd.get("model")),
                     )
         conn.commit()
     except Exception as e:

@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import history_conn, HISTORY_DB
+from _common import history_conn, load_config, canonical_reviewer, HISTORY_DB
 
 
 def main() -> int:
@@ -57,15 +57,120 @@ def main() -> int:
 
     # Benchmark F1
     cur.execute(f"""
-        SELECT reviewer, AVG(f1) AS avg_f1, AVG("precision") AS avg_prec, AVG(recall) AS avg_rec, COUNT(*) AS n
+        SELECT reviewer, AVG(f1) AS avg_f1, AVG("precision") AS avg_prec, AVG(recall) AS avg_rec,
+               COUNT(*) AS n, model,
+               SUM(CASE WHEN COALESCE(error, '') != '' THEN 1 ELSE 0 END) AS errored
         FROM benchmarks
         {where}
-        GROUP BY reviewer
+        GROUP BY reviewer, model
     """, params)
-    bench = {r[0]: {"f1": r[1], "prec": r[2], "rec": r[3], "n": r[4]} for r in cur.fetchall()}
+    # Grouped by (reviewer, model): a reviewer KEY is stable across a model
+    # bump, so scores have to be kept separable by the model that produced them.
+    bench_raw = [
+        {"reviewer": r[0], "f1": r[1], "prec": r[2], "rec": r[3], "n": r[4],
+         "model": r[5], "errored": r[6] or 0}
+        for r in cur.fetchall()
+    ]
+
+    # history.db stores whatever the registry called a reviewer at run time, so
+    # rows written before the 2026-09-22 version-free rename carry `glm-5.2`
+    # while new ones carry `glm`. Grouping by the raw name splits one reviewer
+    # into two and stops old benchmark metrics attaching to the canonical name
+    # — i.e. the history continuity the alias map exists to preserve.
+    #
+    # SQL cannot call canonical_reviewer, so the SQL GROUP BY is only a
+    # pre-aggregation; the merge below folds the groups by canonical name.
+    cfg = load_config()
+
+    def _canon(name: str) -> str:
+        return canonical_reviewer(cfg, name)
+
+    # Averages are re-derived from run-weighted totals, never averaged again:
+    # 12 runs at 30s and 3 at 5s is 25s, not 17.5s.
+    merged: dict[str, dict] = {}
+    for reviewer, runs, avg_lat, avg_f, fb, errs in agg:
+        m = merged.setdefault(_canon(reviewer), {
+            "runs": 0, "lat_total": 0.0, "find_total": 0.0, "fb": 0, "errs": 0,
+            "aliased_from": set(),
+        })
+        n = runs or 0
+        m["runs"] += n
+        m["lat_total"] += (avg_lat or 0) * n
+        m["find_total"] += (avg_f or 0) * n
+        m["fb"] += fb or 0
+        m["errs"] += errs or 0
+        if _canon(reviewer) != reviewer:
+            m["aliased_from"].add(reviewer)
+
+    # Every model a reviewer can CURRENTLY be served by, to compare against
+    # what its scores measured. Both routes count, not just the declared
+    # primary: `route_preference` decides which of a dual-route reviewer's two
+    # models is tried first, and a primary failure serves the other one — so a
+    # perfectly current run legitimately records either slug. Comparing against
+    # the declaration-only primary marked fresh glm / minimax / deepseek
+    # results stale on the very run that produced them.
+    def _routes(name: str) -> list[dict]:
+        spec = cfg["reviewers"].get(name) or {}
+        return [r for r in (spec.get("primary"), spec.get("fallback")) if r]
+
+    def _current_models(name: str) -> set[str]:
+        return {m for m in (r.get("model") for r in _routes(name)) if m}
+
+    # True when at least one route is a CLI route, which carries no model
+    # slug. For those reviewers a NULL model is a legitimate CURRENT record,
+    # not a row predating model recording.
+    def _has_modelless_route(name: str) -> bool:
+        return any(not r.get("model") for r in _routes(name))
+
+    bench: dict[str, dict] = {}
+    for b in bench_raw:
+        canon = _canon(b["reviewer"])
+        c = bench.setdefault(canon, {"f1": 0.0, "prec": 0.0, "rec": 0.0, "n": 0,
+                                     "models": set(), "unrecorded": 0})
+        n = b["n"] or 0
+        # `merged_from` catches a renamed KEY. It cannot catch a stable key
+        # whose MODEL moved underneath it — gemini-or kept its name while its
+        # slug went 2.5-flash -> 3.8-flash — which would print 2.5 Flash's F1
+        # under a 3.8 Flash reviewer with nothing to say so.
+        if b["model"]:
+            c["models"].add(b["model"])
+        elif _current_models(canon) and not _has_modelless_route(canon):
+            # NULL here means the row predates model recording — but only for
+            # a SUCCEEDED run. Two other cases produce a legitimate NULL:
+            #
+            #   * a run that errored (wall-cap, exception, no adapter) served
+            #     no model at all, and current code writes NULL for it. Those
+            #     rows are excluded here, or a fresh failed benchmark would be
+            #     reported as predating a migration it was written after.
+            #   * a reviewer with a model-less CLI route, whose successful runs
+            #     have no slug to record. Hence the branch condition.
+            #
+            # The cost of the second exclusion: for such a reviewer a row that
+            # genuinely predates recording no longer earns the marker, because
+            # NULL cannot distinguish the two cases. The first exclusion has no
+            # such cost — an errored row measured nothing either way.
+            c["unrecorded"] += n - (b["errored"] or 0)
+        c["f1"] += (b["f1"] or 0) * n
+        c["prec"] += (b["prec"] or 0) * n
+        c["rec"] += (b["rec"] or 0) * n
+        c["n"] += n
+    for name, c in bench.items():
+        if c["n"]:
+            c["f1"] /= c["n"]
+            c["prec"] /= c["n"]
+            c["rec"] /= c["n"]
+        cur_models = _current_models(name)
+        # Stale: measured a model none of this reviewer's current routes serve.
+        # Unverified: predates model recording — unknown, which is not "same".
+        c["stale_models"] = sorted(m for m in c["models"] if m not in cur_models)
+        c["unverified"] = bool(c["unrecorded"])
 
     rows = []
-    for reviewer, runs, avg_lat, avg_f, fb, errs in agg:
+    for reviewer, m in sorted(merged.items(), key=lambda kv: -kv[1]["runs"]):
+        runs = m["runs"]
+        avg_lat = m["lat_total"] / runs if runs else 0
+        avg_f = m["find_total"] / runs if runs else 0
+        fb, errs = m["fb"], m["errs"]
         b = bench.get(reviewer, {})
         rows.append({
             "reviewer": reviewer,
@@ -74,22 +179,42 @@ def main() -> int:
             "avg_findings": round(avg_f or 0, 1),
             "fallback_uses": fb or 0,
             "errors": errs or 0,
+            # Names this row absorbed, so a merged history is visible rather
+            # than silently presented as one reviewer's unbroken record.
+            "merged_from": sorted(m["aliased_from"]) or None,
             "bench_f1": round(b.get("f1") or 0, 3) if b else None,
             "bench_precision": round(b.get("prec") or 0, 3) if b else None,
             "bench_recall": round(b.get("rec") or 0, 3) if b else None,
             "bench_samples": b.get("n", 0) if b else 0,
+            # Which models these scores actually measured, when that differs
+            # from what the reviewer runs now.
+            "bench_stale_models": (b.get("stale_models") or None) if b else None,
+            "bench_model_unverified": bool(b.get("unverified")) if b else False,
         })
 
     if args.format == "json":
         print(json.dumps(rows, indent=2))
     else:
-        print(f"{'REVIEWER':<18} {'RUNS':>5} {'LAT(s)':>7} {'FIND':>5} {'FB':>3} {'ERR':>3}  {'F1':>5} {'PREC':>5} {'REC':>5} {'N':>3}")
+        print(f"{'REVIEWER':<18} {'RUNS':>5} {'LAT(s)':>7} {'FIND':>5} {'FB':>3} {'ERR':>3}  {'F1':>5} {'PREC':>5} {'REC':>5} {'N':>3} ")
         for r in rows:
+            mark = ("*" if r.get("bench_stale_models")
+                    else "?" if r.get("bench_model_unverified") else "")
             print(f"{r['reviewer']:<18} {r['runs']:>5} {r['avg_latency_sec']:>7.2f} {r['avg_findings']:>5.1f} {r['fallback_uses']:>3} {r['errors']:>3}  "
                   f"{(r['bench_f1'] if r['bench_f1'] is not None else 0):>5.3f} "
                   f"{(r['bench_precision'] if r['bench_precision'] is not None else 0):>5.3f} "
                   f"{(r['bench_recall'] if r['bench_recall'] is not None else 0):>5.3f} "
-                  f"{r['bench_samples']:>3}")
+                  f"{r['bench_samples']:>3} {mark}")
+
+        stale = [r for r in rows if r.get("bench_stale_models")]
+        unver = [r for r in rows if r.get("bench_model_unverified")]
+        if stale or unver:
+            print()
+        for r in stale:
+            print(f"  * {r['reviewer']}: scores measured "
+                  f"{', '.join(r['bench_stale_models'])}, which it no longer runs")
+        for r in unver:
+            print(f"  ? {r['reviewer']}: scores predate model recording — "
+                  f"cannot confirm they measured the current model")
 
     # Last 5 runs
     if args.format == "table":

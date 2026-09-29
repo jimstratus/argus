@@ -129,34 +129,66 @@ OpenRouter route; which one is tried first is governed by
 
 | Reviewer | Route(s) | Notes |
 |---|---|---|
-| `glm-5.2` | **dual-route**: z.ai Coding Plan ↔ OR `z-ai/glm-5.2` | strong security + logic |
-| `minimax-m3` | **dual-route**: minimaxi.chat ↔ OR `minimax/minimax-m3` | high precision |
-| `deepseek-v4-pro` | **dual-route**: api.deepseek.com ↔ OR `deepseek/deepseek-v4-pro` | 1.6T MoE, 1M ctx, reasoning + security |
-| `kimi-k2.6` | aichat → OR `moonshotai/kimi-k2.5` | long-context agentic |
-| `mimo-v2-pro` | aichat → OR `xiaomi/mimo-v2-pro` | 1M ctx |
-| `qwen-3.6-plus` | aichat → OR `qwen/qwen3.6-plus` | 1M ctx, conservative |
-| `grok-4.20` | aichat → OR `x-ai/grok-4.20` | 2M ctx, pricey |
-| `deepseek-v3.2` | aichat → OR `deepseek/deepseek-v3.2` | **custom-only** — superseded by `deepseek-v4-pro` |
-| `gemini-or` | aichat → OR `google/gemini-2.5-flash` | 2s/call, best value |
+| `glm` | **dual-route**: z.ai Coding Plan ↔ OR `z-ai/glm-5.3` | strong security + logic |
+| `minimax` | **dual-route**: minimaxi.chat ↔ OR `minimax/minimax-m3` | high precision |
+| `deepseek` | **dual-route**: api.deepseek.com ↔ OR `deepseek/deepseek-v4-pro-0813` | 1.6T MoE, 1M ctx, reasoning + security |
+| `kimi` | aichat → OR `moonshotai/kimi-k3` | long-context agentic |
+| `mimo` | aichat → OR `xiaomi/mimo-v2.6-pro` | 1M ctx |
+| `qwen` | aichat → OR `qwen/qwen3.8-max-0902` | 1M ctx, conservative |
+| `grok` | aichat → OR `x-ai/grok-4.7` | current xAI flagship, 500K ctx |
+| `grok-longctx` | aichat → OR `x-ai/grok-4.20` | the only **2M**-ctx reviewer; kept because every newer Grok has a smaller window. Not in any shipped profile — name it explicitly |
+| `deepseek-v3.2` | aichat → OR `deepseek/deepseek-v3.2` | **custom-only** — superseded by `deepseek` |
+| `gemini-or` | aichat → OR `google/gemini-3.8-flash` | Flash tier; **not benchmarked** — the ~2s/call figure was 2.5 Flash |
 | `gemini` | `gemini` CLI (paid sub) | disabled pending Windows re-test of the tree-kill fix |
 | `codex` | `codex` CLI (paid sub) | GPT-5.x, thorough, slow |
 | `claude` | `claude` CLI (paid sub) | auto-added to **profile** rosters when host ≠ claude |
 | `opencode` | `opencode` CLI (paid sub) | top performer, slow cold start |
-| `hermes-4.3` | aichat → Nous (fallback OR) | custom-only |
-| `copilot-gpt5` | GitHub `copilot` CLI | **disabled** — returned prose under the old prompt-as-arg invocation; re-test with the new stdin invocation |
+| `hermes` | aichat → Nous (fallback OR) | custom-only |
+| `opencode-minimax` | `opencode` CLI → `minimax-coding-plan/MiniMax-M3` | **custom-only** — MiniMax M3 billed to the OpenCode sub instead of metered API |
+| `opencode-glm` | `opencode` CLI → `ollama-cloud/glm-5.2` | **custom-only** — still on 5.2: the Ollama Cloud catalog isn't visible from the OpenRouter API, so `glm-5.3` there is unverified and this route has no fallback |
+| `copilot` | GitHub `copilot` CLI | **disabled** — returned prose under the old prompt-as-arg invocation; re-test with the new stdin invocation |
+
+### Reviewer names are version-free
+
+Keys are `glm`, `kimi`, `qwen`, `mimo`, `grok`, `deepseek`, `minimax`, `hermes` —
+the model version lives in the slug and display name, never in the key. Bumping a
+model is then a one-line `config.yaml` edit that doesn't invalidate a saved
+profile, a `--custom` roster, or a `history.db` row.
+
+Old version-named keys still work, via the `aliases:` map in `config.yaml`:
+
+```bash
+/argus --custom "glm-5.2,kimi-k2.6"   # resolves to glm,kimi
+```
+
+Naming both an alias and its canonical key dispatches the reviewer **once** —
+dispatching it twice would let it corroborate its own findings past the
+confidence threshold.
+
+> [!IMPORTANT]
+> `grok-4.20` aliases to **`grok-longctx`**, not `grok`. The old key named the
+> 2M-context model specifically, and `grok` is now Grok 4.7 at 500K — mapping it
+> across would have silently shrunk an existing roster's context window.
+
+**OpenRouter-routed** model IDs, context lengths and prices were verified
+against the live catalog on **2026-09-22**. Direct-provider slugs (z.ai,
+MiniMax, DeepSeek, Nous) and CLI-provider slugs (`minimax-coding-plan/…`,
+`ollama-cloud/…`, Copilot) are **not** covered — that API cannot see them.
+`opencode-glm` is the live example: still on `glm-5.2` precisely because its
+catalog is invisible from here.
 
 ## Profiles
 
 | Profile | Members | Use |
 |---|---|---|
-| `quick` | `glm-5.2`, `gemini-or` | 2-reviewer smoke test |
-| `standard` *(default)* | `glm-5.2`, `minimax-m3`, `gemini-or`, `codex` | everyday review |
-| `panel` | 10 reviewers | maximum coverage |
-| `security` | `glm-5.2`, `deepseek-v4-pro`, `codex`, `claude` | auth/crypto/input focus |
-| `deep` | `mimo-v2-pro`, `gemini-or`, `kimi-k2.6`, `deepseek-v4-pro`, `codex` | long-context, large diffs |
-| `favorites` | `glm-5.2`, `minimax-m3` | direct-sub picks |
-| `direct` | `glm-5.2`, `minimax-m3`, `deepseek-v4-pro`, `codex`, `claude`, `opencode` | direct-API subs only, no Gemini — pair with `route_preference: direct` |
-| `leaderboard-top5` | `opencode`, `qwen-3.6-plus`, `glm-5.2`, `gemini-or`, `minimax-m3` | benchmark winners |
+| `quick` | `glm`, `gemini-or` | 2-reviewer smoke test |
+| `standard` *(default)* | `glm`, `minimax`, `gemini-or`, `codex` | everyday review |
+| `panel` | 11 reviewers | maximum coverage |
+| `security` | `glm`, `deepseek`, `codex`, `claude` | auth/crypto/input focus |
+| `deep` | `mimo`, `gemini-or`, `kimi`, `deepseek`, `codex` | long-context, large diffs — add `grok-longctx` via `--custom` for a 2M window |
+| `favorites` | `glm`, `minimax` | direct-sub picks |
+| `direct` | `glm`, `minimax`, `deepseek`, `codex`, `claude`, `opencode` | direct-API subs only, no Gemini — pair with `route_preference: direct` |
+| `leaderboard-top5` | `opencode`, `qwen`, `glm`, `gemini-or`, `minimax` | ⚠️ benchmark winners — **stale**, scored pre-2026-09-22 model refresh |
 
 ---
 
@@ -167,11 +199,11 @@ and an OpenRouter route. The three default-roster ones:
 
 | Reviewer | Direct API | OpenRouter |
 |---|---|---|
-| `glm-5.2` | z.ai (`ZAI_API_KEY`) | `z-ai/glm-5.2` |
-| `minimax-m3` | minimaxi.chat (`MINIMAX_API_KEY`) | `minimax/minimax-m3` |
-| `deepseek-v4-pro` | api.deepseek.com (`DEEPSEEK_API_KEY`) | `deepseek/deepseek-v4-pro` |
+| `glm` | z.ai (`ZAI_API_KEY`) | `z-ai/glm-5.3` |
+| `minimax` | minimaxi.chat (`MINIMAX_API_KEY`) | `minimax/minimax-m3` |
+| `deepseek` | api.deepseek.com (`DEEPSEEK_API_KEY`) | `deepseek/deepseek-v4-pro-0813` |
 
-(The custom-only `hermes-4.3` is dual-route too: Nous direct ↔ OpenRouter.)
+(The custom-only `hermes` is dual-route too: Nous direct ↔ OpenRouter.)
 
 A single knob, `defaults.route_preference` in `config.yaml`, decides which one
 each dual-route reviewer tries **first** (the other becomes the automatic
@@ -201,7 +233,7 @@ export ARGUS_ROUTE_PREF=direct
 # Persist it: set route_preference: direct in config.yaml defaults
 ```
 
-The `direct` profile (`glm-5.2, minimax-m3, deepseek-v4-pro, codex, claude,
+The `direct` profile (`glm, minimax, deepseek, codex, claude,
 opencode` — no Gemini) is the convenient roster to pair with
 `route_preference: direct` when OpenRouter is unavailable.
 
@@ -211,24 +243,46 @@ opencode` — no Gemini) is the convenient roster to pair with
 
 4 fixtures × 3 runs = 12 calls per reviewer. Total spend **~$0.42**.
 
-> Reviewer names below reflect the model versions in place at benchmark time
-> (`glm-5.1`, `minimax-m2.7`, `deepseek-v3.2`); those entries have since been
-> version-bumped to `glm-5.2` / `minimax-m3` / `deepseek-v4-pro`. Re-run
-> `--benchmark` to refresh the board against the current roster.
+> [!WARNING]
+> **These numbers predate the 2026-09-22 model refresh** — but the rows are not
+> all stale in the same way, so the `Now` column says which is which:
+>
+> - **Repointed — genuinely stale.** `qwen`, `glm`, `gemini-or`, `minimax`,
+>   `mimo`, `kimi` now run newer models (and `mimo`'s old slug had been
+>   delisted entirely). These numbers measure something the reviewer no longer
+>   is.
+> - **Renamed only — same model.** `grok-4.20` is now keyed `grok-longctx` and
+>   still runs `x-ai/grok-4.20`. The key moved; the model did not.
+>   `hermes-4.3` is the same story with a wrinkle: its version lived in the
+>   *key*, while the route that actually ran was its OpenRouter fallback
+>   `nousresearch/hermes-4-405b` — unchanged today. Its direct primary was
+>   corrected (`Hermes-4.3-36B`, a slug never confirmed to exist), but that
+>   route needs `NOUSRESEARCH_API_KEY`, which this environment does not have,
+>   so it cannot have served the row.
+> - **Unchanged.** `deepseek-v3.2` is still its own registry entry on the same
+>   slug. It was *not* replaced by `deepseek`, which is a separate reviewer.
+> - **Unverifiable.** `opencode` and `codex` route through a CLI subscription
+>   with no pinned slug, so nothing records what served them that day. Almost
+>   certainly stale, but this repo cannot demonstrate it.
+>
+> Reviewer names are shown **as-recorded**, which is why they still carry
+> version suffixes — those keys went version-free in the same pass and now
+> resolve via `aliases:`. Re-run `--benchmark` before acting on this ranking
+> either way.
 
-| Rank | Reviewer | F1 | Precision | Recall | Avg call (s) |
-|---|---|---:|---:|---:|---:|
-| 🥇 | `opencode` | 0.811 | 0.896 | 0.754 | 48 |
-| 🥈 | `qwen-3.6-plus` | 0.761 | **1.000** | 0.650 | 76 |
-| 🥉 | `glm-5.1` → `glm-5.2` | 0.697 | 0.772 | 0.725 | 27 |
-| 4 | `gemini-or` (Flash) | 0.681 | 0.736 | 0.639 | **2** |
-| 5 | `minimax-m2.7` → `minimax-m3` | 0.674 | 0.875 | 0.588 | 29 |
-| 6 | `mimo-v2-pro` | 0.652 | 0.736 | 0.600 | 49 |
-| 7 | `codex` | 0.581 | 0.688 | 0.754 | 60 |
-| 8 | `deepseek-v3.2` → `deepseek-v4-pro` | 0.572 | 0.778 | 0.494 | 6 |
-| 9 | `grok-4.20` | 0.557 | 0.592 | 0.533 | **2** |
-| 10 | `hermes-4.3` | 0.551 | 0.646 | 0.653 | 13 |
-| 11 | `kimi-k2.6` | 0.505 | 0.729 | 0.575 | 83 |
+| Rank | Reviewer (as recorded) | Now | F1 | Precision | Recall | Avg call (s) |
+|---|---|---|---:|---:|---:|---:|
+| 🥇 | `opencode` | `opencode` (slug unrecorded) | 0.811 | 0.896 | 0.754 | 48 |
+| 🥈 | `qwen-3.6-plus` | `qwen` (3.8-Max) | 0.761 | **1.000** | 0.650 | 76 |
+| 🥉 | `glm-5.1` | `glm` (5.3) | 0.697 | 0.772 | 0.725 | 27 |
+| 4 | `gemini-or` (2.5 Flash) | `gemini-or` (3.8 Flash) | 0.681 | 0.736 | 0.639 | **2** |
+| 5 | `minimax-m2.7` | `minimax` (M3) | 0.674 | 0.875 | 0.588 | 29 |
+| 6 | `mimo-v2-pro` | `mimo` (V2.6-Pro) | 0.652 | 0.736 | 0.600 | 49 |
+| 7 | `codex` | `codex` (slug unrecorded) | 0.581 | 0.688 | 0.754 | 60 |
+| 8 | `deepseek-v3.2` | `deepseek-v3.2` (unchanged) | 0.572 | 0.778 | 0.494 | 6 |
+| 9 | `grok-4.20` | `grok-longctx` (same model) | 0.557 | 0.592 | 0.533 | **2** |
+| 10 | `hermes-4.3` | `hermes` (same OR slug) | 0.551 | 0.646 | 0.653 | 13 |
+| 11 | `kimi-k2.6` | `kimi` (K3) | 0.505 | 0.729 | 0.575 | 83 |
 
 ```mermaid
 xychart-beta
@@ -238,9 +292,11 @@ xychart-beta
     bar [0.811, 0.761, 0.697, 0.681, 0.674, 0.652, 0.581, 0.572, 0.557, 0.551, 0.505]
 ```
 
-Speed is a separate axis — `gemini-or` and `grok-4.20` answer in ~2s while
-`kimi-k2.6` takes ~83s for a *lower* F1; cost/latency/quality trade-offs are
-yours to pick per profile.
+Speed is a separate axis. **In that historical run** `gemini-or` (then 2.5
+Flash) and `grok-longctx` answered in ~2s while `kimi` (then K2.6) took ~83s
+for a *lower* F1. Those reviewers now point at different models and have not
+been re-measured, so treat the shape of the trade-off as the lesson, not the
+numbers.
 
 Your numbers will differ. Run `--benchmark` on your fixtures. Failed or
 unparseable reviewer calls are zero-scored — a broken reviewer can't climb
@@ -297,7 +353,7 @@ python scripts/benchmark.py --runs 3 --profile standard --progress
 
 ```bash
 export OPENROUTER_API_KEY=...       # public default route — covers most reviewers
-export ZAI_API_KEY=...              # z.ai Coding Plan endpoint (GLM-5.2 direct)
+export ZAI_API_KEY=...              # z.ai Coding Plan endpoint (GLM-5.3 direct)
 export MINIMAX_API_KEY=...          # MiniMax M3 direct
 export DEEPSEEK_API_KEY=...         # DeepSeek V4 Pro direct (api.deepseek.com)
 export KIMI_API_KEY=...             # consumer-scoped (not Moonshot Platform)
@@ -321,7 +377,7 @@ API keys live in env — **never** written to disk by Argus. aichat reads `AICHA
 /argus                                     # default profile, diff = git diff HEAD
 /argus --profile security
 /argus --profile leaderboard-top5
-/argus --custom "glm-5.2,deepseek-v4-pro,claude"
+/argus --custom "glm,deepseek,claude"
 /argus --pr https://github.com/org/repo/pull/42
 /argus --files "src/auth/**/*.ts"
 /argus --benchmark --runs 3               # fixture-suite leaderboard
@@ -338,13 +394,13 @@ git diff HEAD > "$RUN_DIR/diff.patch"
 
 python scripts/dispatch.py \
   --run-dir "$RUN_DIR" \
-  --roster "glm-5.2,minimax-m3,gemini-or,codex" \
+  --roster "glm,minimax,gemini-or,codex" \
   --diff "$RUN_DIR/diff.patch"
 
 python scripts/merge.py --run-dir "$RUN_DIR"
 
 # Prefer direct provider APIs for this run (OpenRouter becomes the fallback):
-python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm-5.2,minimax-m3,deepseek-v4-pro" \
+python scripts/dispatch.py --run-dir "$RUN_DIR" --roster "glm,minimax,deepseek" \
   --diff "$RUN_DIR/diff.patch" --prefer-direct
 ```
 
@@ -470,7 +526,7 @@ For large rosters, prefer one shell per reviewer with a shared timestamp:
 
 ```bash
 TS=$(date +%Y%m%dT%H%M%S)
-for reviewer in glm-5.2 minimax-m3 gemini-or codex opencode; do
+for reviewer in glm minimax gemini-or codex opencode; do
   python scripts/benchmark.py \
     --roster "$reviewer" \
     --runs 3 \
@@ -620,7 +676,7 @@ argus/
 ├──────────────────────────────────────────────────────────────────────────┤
 │  OpenRouter reasoning-provider trap                                      │
 │  ──────────────────────────────────                                      │
-│  z-ai/glm-5.2 and minimax/minimax-m3 slugs can route to Io Net or        │
+│  z-ai/glm-5.3 and minimax/minimax-m3 slugs can route to Io Net or        │
 │  Together providers that return {content: null, reasoning: "..."}.       │
 │                                                                          │
 │  Mitigation: aichat patch applies reasoning-exclude + provider-ignore.   │

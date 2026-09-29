@@ -89,14 +89,14 @@ Pick one with <code>--profile &lt;name&gt;</code>; the default is <code>standard
 <div class="table-wrap"><table>
 <thead><tr><th>Profile</th><th>Members</th><th>Use</th></tr></thead>
 <tbody>
-<tr><td><code>quick</code></td><td>glm-5.2, gemini-or</td><td>2-reviewer smoke test.</td></tr>
-<tr><td><code>standard</code> <span class="badge green">default</span></td><td>glm-5.2, minimax-m3, gemini-or, codex</td><td>Everyday review.</td></tr>
-<tr><td><code>panel</code></td><td>glm-5.2, minimax-m3, kimi-k2.6, mimo-v2-pro, qwen-3.6-plus, deepseek-v4-pro, gemini-or, codex, claude, opencode</td><td>Maximum coverage.</td></tr>
-<tr><td><code>security</code></td><td>glm-5.2, deepseek-v4-pro, codex, claude</td><td>Auth / crypto / input focus (security overlay).</td></tr>
-<tr><td><code>deep</code></td><td>mimo-v2-pro, gemini-or, kimi-k2.6, deepseek-v4-pro, codex</td><td>Long-context, large diffs (deep overlay).</td></tr>
-<tr><td><code>favorites</code></td><td>glm-5.2, minimax-m3</td><td>Direct-sub picks.</td></tr>
-<tr><td><code>direct</code> <span class="badge">new</span></td><td>glm-5.2, minimax-m3, deepseek-v4-pro, codex, claude, opencode</td><td>Direct-API subs only, no Gemini; pair with <code>route_preference: direct</code>.</td></tr>
-<tr><td><code>leaderboard-top5</code></td><td>opencode, qwen-3.6-plus, glm-5.2, gemini-or, minimax-m3</td><td>Benchmark winners.</td></tr>
+<tr><td><code>quick</code></td><td>glm, gemini-or</td><td>2-reviewer smoke test.</td></tr>
+<tr><td><code>standard</code> <span class="badge green">default</span></td><td>glm, minimax, gemini-or, codex</td><td>Everyday review.</td></tr>
+<tr><td><code>panel</code></td><td>glm, minimax, kimi, mimo, qwen, deepseek, grok, gemini-or, codex, claude, opencode</td><td>Maximum coverage.</td></tr>
+<tr><td><code>security</code></td><td>glm, deepseek, codex, claude</td><td>Auth / crypto / input focus (security overlay).</td></tr>
+<tr><td><code>deep</code></td><td>mimo, gemini-or, kimi, deepseek, codex</td><td>Long-context, large diffs (deep overlay). Add <code>grok-longctx</code> via <code>--custom</code> for a 2M window.</td></tr>
+<tr><td><code>favorites</code></td><td>glm, minimax</td><td>Direct-sub picks.</td></tr>
+<tr><td><code>direct</code> <span class="badge">new</span></td><td>glm, minimax, deepseek, codex, claude, opencode</td><td>Direct-API subs only, no Gemini; pair with <code>route_preference: direct</code>.</td></tr>
+<tr><td><code>leaderboard-top5</code></td><td>opencode, qwen, glm, gemini-or, minimax</td><td><span class="badge red">stale</span> scored against the pre-2026-09-22 model set; re-run <code>--benchmark</code>.</td></tr>
 </tbody>
 </table></div>
 

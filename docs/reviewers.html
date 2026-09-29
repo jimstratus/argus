@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Reviewers · Argus</title>
-  <meta name="description" content="The Argus reviewer registry: 15 frontier LLM reviewers with their routes and notes, including the dual-route GLM-5.2, MiniMax M3, and DeepSeek V4 Pro.">
+  <meta name="description" content="The Argus reviewer registry: 18 frontier LLM reviewers with their routes and notes, including the dual-route GLM-5.3, MiniMax M3, and DeepSeek V4 Pro.">
   <link rel="canonical" href="https://jimstratus.github.io/argus/reviewers.html">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Reviewers · Argus">
-  <meta property="og:description" content="The Argus reviewer registry: 15 frontier LLM reviewers with their routes and notes, including the dual-route GLM-5.2, MiniMax M3, and DeepSeek V4 Pro.">
+  <meta property="og:description" content="The Argus reviewer registry: 18 frontier LLM reviewers with their routes and notes, including the dual-route GLM-5.3, MiniMax M3, and DeepSeek V4 Pro.">
   <meta property="og:url" content="https://jimstratus.github.io/argus/reviewers.html">
   <meta name="twitter:card" content="summary">
   <meta name="theme-color" content="#6d28d9">
@@ -83,33 +83,51 @@
       
       <article class="prose">
         
-<p>The registry has <strong>15 reviewers</strong>. Three default-roster ones are <strong>dual-route</strong>
+<p>The registry has <strong>18 reviewers</strong>. Three default-roster ones are <strong>dual-route</strong>
 (a direct provider API plus OpenRouter) and are reordered by the
-<a href="configuration.html#routing">routing preference</a> (the custom-only <code>hermes-4.3</code> is
+<a href="configuration.html#routing">routing preference</a> (the custom-only <code>hermes</code> is
 dual-route too); the rest are single-route API reviewers or paid-CLI reviewers. Model versions are the headline of this
-release: <strong>GLM&#8209;5.2</strong>, <strong>MiniMax&nbsp;M3</strong>, and the new default
-<strong>DeepSeek&nbsp;V4&nbsp;Pro</strong>.</p>
+release: <strong>GLM&#8209;5.3</strong>, <strong>MiniMax&nbsp;M3</strong>, and the new default
+<strong>DeepSeek&nbsp;V4&nbsp;Pro&nbsp;0813</strong>. <strong>OpenRouter-routed</strong> model IDs, context
+lengths and prices were verified against the live catalog on <strong>2026&#8209;09&#8209;22</strong>; direct-provider
+and CLI-provider slugs are <em>not</em> covered, because that API cannot see them &mdash; which is why
+<code>opencode-glm</code> is still on <code>glm-5.2</code>.</p>
 
 <div class="table-wrap"><table>
 <thead><tr><th>Reviewer</th><th>Route(s)</th><th>Notes</th></tr></thead>
 <tbody>
-<tr><td><code>glm-5.2</code> <span class="badge">dual-route</span></td><td>z.ai direct + OpenRouter (<code>z-ai/glm-5.2</code>)</td><td>Strong security + logic.</td></tr>
-<tr><td><code>minimax-m3</code> <span class="badge">dual-route</span></td><td>MiniMax direct + OpenRouter (<code>minimax/minimax-m3</code>)</td><td>High precision.</td></tr>
-<tr><td><code>kimi-k2.6</code></td><td>OpenRouter (<code>moonshotai/kimi-k2.5</code>, fallback <code>kimi-k2-thinking</code>)</td><td>Long-context, agentic.</td></tr>
-<tr><td><code>mimo-v2-pro</code></td><td>OpenRouter (<code>xiaomi/mimo-v2-pro</code>)</td><td>1M context window.</td></tr>
-<tr><td><code>qwen-3.6-plus</code></td><td>OpenRouter (<code>qwen/qwen3.6-plus</code>)</td><td>1M ctx, conservative / high precision.</td></tr>
-<tr><td><code>grok-4.20</code></td><td>OpenRouter (<code>x-ai/grok-4.20</code>)</td><td>2M ctx, pricey.</td></tr>
-<tr><td><code>deepseek-v4-pro</code> <span class="badge">dual-route</span> <span class="badge green">default DeepSeek</span></td><td>DeepSeek direct + OpenRouter (<code>deepseek/deepseek-v4-pro</code>)</td><td>1.6T MoE, 49B active, ~1M ctx; reasoning + security.</td></tr>
+<tr><td><code>glm</code> <span class="badge">dual-route</span></td><td>z.ai direct + OpenRouter (<code>z-ai/glm-5.3</code>)</td><td>Strong security + logic.</td></tr>
+<tr><td><code>minimax</code> <span class="badge">dual-route</span></td><td>MiniMax direct + OpenRouter (<code>minimax/minimax-m3</code>)</td><td>High precision.</td></tr>
+<tr><td><code>kimi</code></td><td>OpenRouter (<code>moonshotai/kimi-k3</code>, fallback <code>kimi-k2.7-code</code>)</td><td>Long-context, agentic.</td></tr>
+<tr><td><code>mimo</code></td><td>OpenRouter (<code>xiaomi/mimo-v2.6-pro</code>)</td><td>1M context window.</td></tr>
+<tr><td><code>qwen</code></td><td>OpenRouter (<code>qwen/qwen3.8-max-0902</code>)</td><td>1M ctx, conservative / high precision.</td></tr>
+<tr><td><code>grok</code></td><td>OpenRouter (<code>x-ai/grok-4.7</code>)</td><td>Current xAI flagship; 500K ctx, reasoning.</td></tr>
+<tr><td><code>grok-longctx</code></td><td>OpenRouter (<code>x-ai/grok-4.20</code>)</td><td>The only <strong>2M</strong>-ctx reviewer &mdash; kept because every newer Grok has a smaller window. Not in any shipped profile; name it explicitly.</td></tr>
+<tr><td><code>deepseek</code> <span class="badge">dual-route</span> <span class="badge green">default DeepSeek</span></td><td>DeepSeek direct + OpenRouter (<code>deepseek/deepseek-v4-pro-0813</code>)</td><td>1.6T MoE, 49B active, ~1M ctx; reasoning + security.</td></tr>
 <tr><td><code>deepseek-v3.2</code></td><td>OpenRouter</td><td><span class="badge gray">custom-only</span> superseded by v4-pro.</td></tr>
-<tr><td><code>hermes-4.3</code> <span class="badge">dual-route</span></td><td>Nous direct + OpenRouter fallback</td><td><span class="badge gray">custom-only</span></td></tr>
+<tr><td><code>hermes</code> <span class="badge">dual-route</span></td><td>Nous direct + OpenRouter fallback</td><td><span class="badge gray">custom-only</span></td></tr>
+<tr><td><code>opencode-minimax</code></td><td>OpenCode CLI &rarr; <code>minimax-coding-plan/MiniMax-M3</code></td><td><span class="badge gray">custom-only</span> MiniMax M3 billed to the OpenCode sub instead of the metered API.</td></tr>
+<tr><td><code>opencode-glm</code></td><td>OpenCode CLI &rarr; <code>ollama-cloud/glm-5.2</code></td><td><span class="badge gray">custom-only</span> Still on 5.2 &mdash; the Ollama Cloud catalog is not visible from the OpenRouter API, so <code>glm-5.3</code> there is unverified and this route has no fallback.</td></tr>
 <tr><td><code>gemini</code></td><td>Gemini CLI (paid sub)</td><td><span class="badge red">disabled</span> Windows .cmd tree-kill re-test pending; use <code>gemini-or</code> meanwhile.</td></tr>
-<tr><td><code>gemini-or</code></td><td>OpenRouter (<code>google/gemini-2.5-flash</code>)</td><td>~2s/call, best value.</td></tr>
+<tr><td><code>gemini-or</code></td><td>OpenRouter (<code>google/gemini-3.8-flash</code>)</td><td>Flash tier. <strong>Not benchmarked</strong> &mdash; the &ldquo;~2s/call, best value&rdquo; figure measured 2.5&nbsp;Flash.</td></tr>
 <tr><td><code>codex</code></td><td>Codex CLI (paid sub, GPT-5.x)</td><td>Thorough, slow; OpenRouter fallback.</td></tr>
 <tr><td><code>claude</code></td><td>Claude CLI (paid sub)</td><td>Auto-added to profile rosters when host &ne; claude.</td></tr>
 <tr><td><code>opencode</code></td><td>OpenCode CLI (paid sub)</td><td>Top benchmark performer, slow cold start.</td></tr>
-<tr><td><code>copilot-gpt5</code></td><td>GitHub Copilot CLI</td><td><span class="badge red">disabled / eliminated</span> agent harness returns prose, not our JSON schema.</td></tr>
+<tr><td><code>copilot</code></td><td>GitHub Copilot CLI</td><td><span class="badge red">disabled / eliminated</span> agent harness returns prose, not our JSON schema.</td></tr>
 </tbody>
 </table></div>
+
+<div class="callout note"><div class="ico">&#127991;</div><div>
+<strong>Reviewer names are version-free</strong>
+<p>Keys are <code>glm</code>, <code>kimi</code>, <code>qwen</code>&hellip; &mdash; the model version lives in the
+slug and display name only, so bumping a model never invalidates a saved profile, a <code>--custom</code> roster,
+or a <code>history.db</code> row. The old version-named keys still work via the <code>aliases:</code> map in
+<code>config.yaml</code>: <code>--custom "glm-5.2,kimi-k2.6"</code> resolves to <code>glm,kimi</code>, and naming
+both an alias and its canonical key dispatches the reviewer once, not twice.</p>
+<p><strong>One deliberate exception:</strong> <code>grok-4.20</code> aliases to <code>grok-longctx</code>, not
+<code>grok</code>. The old key named the 2M-context model specifically, and <code>grok</code> is now Grok&nbsp;4.7
+at 500K &mdash; mapping it across would have silently shrunk an existing roster's context window.</p>
+</div></div>
 
 <div class="callout note"><div class="ico">&#128260;</div><div>
 <strong>Dual-route vs CLI</strong>

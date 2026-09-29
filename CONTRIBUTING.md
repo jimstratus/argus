@@ -10,7 +10,7 @@ Adding or changing a reviewer is a config change, not a code change:
 4. Optionally add the reviewer to a profile
 
 **Dual-route reviewers** (a direct-provider API route *and* an OpenRouter
-route — e.g. `glm-5.2`, `minimax-m3`, `deepseek-v4-pro`): declare both as
+route — e.g. `glm`, `minimax`, `deepseek`): declare both as
 `primary`/`fallback`. `_common.resolve_routes` reorders them by
 `route_preference` (`openrouter` default | `direct`), so declaration order
 doesn't matter — never re-order routes inline in a script. If you add a new

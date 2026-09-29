@@ -1,14 +1,14 @@
 # Argus — project context for Claude
 
 > Multi-model code review skill. Dispatches a diff to a configurable roster of
-> frontier LLM reviewers (GLM-5.2, MiniMax M3, Kimi K2, MiMo-V2-Pro,
-> Qwen3.6-Plus, Grok 4.20, DeepSeek V4 Pro, Hermes 4.3, Gemini CLI, Codex CLI,
+> frontier LLM reviewers (GLM-5.3, MiniMax M3, Kimi K3, MiMo-V2.6-Pro,
+> Qwen3.8-Max, Grok 4.7, DeepSeek V4 Pro, Hermes 4, Gemini CLI, Codex CLI,
 > Claude CLI, OpenCode CLI, GitHub Copilot CLI), runs them in parallel, filters
 > by confidence with cross-reviewer corroboration, and produces one merged
 > review. Includes a benchmark mode that runs a fixture suite across all
 > reviewers to build a leaderboard.
 >
-> GLM-5.2, MiniMax M3, and DeepSeek V4 Pro are **dual-route** (direct provider
+> GLM-5.3, MiniMax M3, and DeepSeek V4 Pro are **dual-route** (direct provider
 > API + OpenRouter); `defaults.route_preference` (`openrouter` default | `direct`)
 > — overridable via `--route-pref` / `--prefer-direct` / `--prefer-openrouter`
 > or `ARGUS_ROUTE_PREF` — decides which each tries first. CLI reviewers are
@@ -74,7 +74,7 @@ argus/
   `GEMINI_API_KEY`, `OPENAI_API_KEY`. Claude CLI uses its own auth. `_common.build_aichat_env()` forwards `$<PROVIDER>_API_KEY` → `AICHAT_<CLIENT>_API_KEY` at subprocess dispatch.
 - **Route preference:** `ARGUS_ROUTE_PREF={openrouter,direct}` (or
   `--route-pref` / `--prefer-direct` / `--prefer-openrouter`) overrides
-  `defaults.route_preference`. Only `glm-5.2`, `minimax-m3`, `deepseek-v4-pro`
+  `defaults.route_preference`. Only `glm`, `minimax`, `deepseek`
   are reordered; logic lives in `_common.resolve_routes` /
   `resolve_route_preference` (single source of truth, used by dispatch /
   verify / benchmark / estimate_cost).
@@ -126,8 +126,8 @@ path for rosters of ≤4 reviewers.
 RUN_DIR="$ARGUS_HOME/runs/$(date +%Y%m%dT%H%M%S)-manual"
 mkdir -p "$RUN_DIR"
 git diff HEAD > "$RUN_DIR/diff.patch"
-py -3.12 "$ARGUS_HOME/scripts/estimate_cost.py" --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
-py -3.12 "$ARGUS_HOME/scripts/dispatch.py" --run-dir "$RUN_DIR" --roster "glm-5.2,minimax-m3,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+py -3.12 "$ARGUS_HOME/scripts/estimate_cost.py" --roster "glm,minimax,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
+py -3.12 "$ARGUS_HOME/scripts/dispatch.py" --run-dir "$RUN_DIR" --roster "glm,minimax,gemini-or,codex" --diff "$RUN_DIR/diff.patch"
 py -3.12 "$ARGUS_HOME/scripts/merge.py" --run-dir "$RUN_DIR"
 ```
 
@@ -148,6 +148,38 @@ reviewer is auto-skipped** — the nested-invocation policy would block it).
 `--roster` names are explicit: disabled/custom_only gates are waived and
 host_rules `add` does not inject extra reviewers; profile-based rosters get
 the full policy (disabled, tier, privacy, custom_only, host add).
+
+### Reviewer naming + aliases
+Reviewer keys are **version-free** (`glm`, `minimax`, `kimi`, `qwen`, `mimo`,
+`grok`, `deepseek`, `hermes`) as of 2026-09-22. The model version lives in the
+`model:` slug and `display:` string only, so a model bump is a one-line config
+edit that never invalidates a saved profile, a `--custom` roster, or a
+`history.db` row keyed by reviewer name. **Do not reintroduce version-named
+keys.**
+
+Old keys keep working via `aliases:` in config.yaml, resolved by
+`_common.canonicalize_roster` (applied in `resolve_roster`, `estimate_cost.py`
+and `verify.py`). A registry key always beats the alias map, and an alias plus
+its canonical key dedupe to one reviewer.
+
+`grok-4.20` aliases to **`grok-longctx`**, not `grok`: the old key named the
+2M-context model, and `grok` is now Grok 4.7 at 500K. `grok-longctx` is the
+only 2M-ctx reviewer in the registry — that is the whole reason it survives a
+"newest flagship everywhere" pass.
+
+### Model currency
+**OpenRouter-routed** model IDs / ctx / `cost_per_m` were verified against the
+live catalog (`GET https://openrouter.ai/api/v1/models`) on 2026-09-22. This
+does **not** cover direct-provider slugs (zai, minimax, deepseek, nous) or
+CLI-provider slugs (`minimax-coding-plan/…`, `ollama-cloud/…`, copilot) —
+that API cannot see them, which is why `opencode-glm` is deliberately still
+on glm-5.2. `mimo` had
+been pointing at a **delisted** slug (`xiaomi/mimo-v2-pro`) and was silently
+dead. Re-verify pins by diffing `config.yaml` against the live catalog
+(`curl -s https://openrouter.ai/api/v1/models`) before trusting a benchmark.
+**`verify.py --all` does NOT do this** — it only pings routes for
+reachability and cannot see the catalog, so a reviewer pings green on a
+stale ctx or price.
 
 ### Confidence filter + corroboration
 - Drop findings with effective confidence < 80.
@@ -205,10 +237,11 @@ tested returns usable JSON.
 | Issue | Status | Fix |
 |---|---|---|
 | OpenRouter balance depleted (Ryan) | set `route_preference: direct` / `--prefer-direct` (or `ARGUS_ROUTE_PREF=direct`); skip Gemini (OR-only) — use the `direct` profile | top up OR if the public default route is wanted |
-| GLM-5.2 z.ai direct → "Insufficient balance" | fallback via OR works (under `openrouter` pref OR is primary anyway) | top up z.ai account |
+| GLM-5.3 z.ai direct → "Insufficient balance" | fallback via OR works (under `openrouter` pref OR is primary anyway) | top up z.ai account |
 | MiniMax-M3 direct → works (slow, ~20s for fixture) | — | — |
 | DeepSeek V4 Pro direct (`DEEPSEEK_API_KEY`) | dual-route; OR fallback works | set `DEEPSEEK_API_KEY` for the direct route |
-| Kimi `KIMI_API_KEY` is consumer-only | forced OR primary (`moonshotai/kimi-k2.5`) | need Moonshot Platform dev key for k2.6-preview |
+| Kimi `KIMI_API_KEY` is consumer-only | forced OR primary (`moonshotai/kimi-k3`) | need a Moonshot Platform dev key for a direct route |
+| Kimi K3 is ~5x the old K2.5 rate ($3/$15) | fallback is `kimi-k2.7-code` ($0.71/$3.21) | swap primary/fallback if panel runs trip the $2 block |
 | Nous Hermes direct → `NOUSRESEARCH_API_KEY` not in env | OR fallback works | set env var if wanted |
 | Gemini CLI disabled (timeout hang) | run_subprocess now tree-kills on timeout | re-test on Windows, then re-enable in config |
 | OpenCode CLI slow (42+s/call) | works, barely fits 45s verify timeout | dispatch timeout already 360s |
@@ -216,8 +249,8 @@ tested returns usable JSON.
 
 ## Reviewer recommendations (initial, pre-benchmark)
 
-Ryan's preferences so far: GLM-5.2 and MiniMax M3 (has direct subs).
-Default `standard` profile: `glm-5.2, minimax-m3, gemini-or, codex` — balances
+Ryan's preferences so far: GLM-5.3 and MiniMax M3 (has direct subs).
+Default `standard` profile: `glm, minimax, gemini-or, codex` — balances
 Chinese + Western frontier, direct subs + paid CLIs. When OR balance is
 depleted, Ryan runs the `direct` profile with `route_preference: direct`
 (direct subs + CLIs, Gemini skipped).

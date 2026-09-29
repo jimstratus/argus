@@ -2,8 +2,8 @@
 name: argus
 description: >-
   Multi-model code review. Dispatches a diff / PR / files to a configurable roster
-  of reviewers (GLM-5.2, MiniMax M3, Kimi K2.6, MiMo-V2-Pro, Qwen3.6-Plus,
-  Grok 4.20, DeepSeek V4 Pro, Gemini CLI, Codex CLI, Claude CLI, OpenCode CLI)
+  of reviewers (GLM-5.3, MiniMax M3, Kimi K3, MiMo-V2.6-Pro, Qwen3.8-Max,
+  Grok 4.7, DeepSeek V4 Pro, Gemini CLI, Codex CLI, Claude CLI, OpenCode CLI)
   in parallel, applies a confidence filter with cross-reviewer corroboration,
   and produces one merged review. Includes benchmark mode that runs the full
   fixture suite to establish preferred reviewers.
@@ -39,7 +39,7 @@ Extract from `$ARGUMENTS`:
 | Flag | Effect |
 |---|---|
 | `--profile NAME` | Use named profile (quick / standard / panel / security / deep / favorites / direct / leaderboard-top5 / saved-custom-name) |
-| `--route-pref {openrouter,direct}` | Route preference for dual-route reviewers (glm-5.2 / minimax-m3 / deepseek-v4-pro). `openrouter` (default) tries OpenRouter first; `direct` tries each provider's own API first. Shorthands: `--prefer-direct`, `--prefer-openrouter`. Env: `ARGUS_ROUTE_PREF`. |
+| `--route-pref {openrouter,direct}` | Route preference for dual-route reviewers (glm / minimax / deepseek). `openrouter` (default) tries OpenRouter first; `direct` tries each provider's own API first. Shorthands: `--prefer-direct`, `--prefer-openrouter`. Env: `ARGUS_ROUTE_PREF`. |
 | `--custom "a,b,c"` | One-off roster; combine with `--save-as NAME` to persist |
 | `--models "a,b,c"` | Alias for `--custom`, never saved |
 | `--pr URL` | Diff via `gh pr diff URL` |
@@ -71,6 +71,15 @@ Apply `host_rules[$HOST]` from config.yaml: remove `skip` list, append `add` lis
 
 1. Load config.yaml
 2. Base list from `--profile` / `--custom` / `--models` / default profile
+2a. **Canonicalize names.** Reviewer keys are version-free (`glm`, `kimi`,
+   `qwen`, ...); the model version lives in the slug, not the key, so model
+   bumps never invalidate a saved profile or a `history.db` row. Legacy
+   version-named keys resolve through `aliases:` in config.yaml
+   (`glm-5.2` → `glm`), and an alias plus its canonical key collapse to a
+   single reviewer — dispatching both would let one reviewer corroborate
+   its own findings past the confidence threshold. `--custom "grok-4.20"`
+   resolves to `grok-longctx` (the 2M-ctx model), **not** `grok`
+   (Grok 4.7, 500K). Handled by `_common.canonicalize_roster`.
 3. Apply host rules (step 2 above). For explicitly-named rosters
    (`--custom` / `--models`) apply only the `skip` list — never inject
    `add` reviewers the user didn't ask for.
