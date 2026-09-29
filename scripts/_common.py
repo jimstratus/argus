@@ -486,7 +486,9 @@ async def dispatch_with_fallback(
         primary_exit_code, primary_error, parse_error, error, raw_preview
 
     Contracts pinned by tests (past-drift regressions):
-      - both routes fail → ``model is None`` (do NOT blame the fallback slug)
+      - both routes fail → ``model is None`` (do NOT blame the fallback slug);
+        ``route`` still names the last-tried (fallback) route — aggregate
+        zero-scores by ``model is None``, not by ``route``
       - non-zero exit with empty stderr → ``error`` is still non-empty
       - successful fallback → ``route`` / ``model`` come from the fallback
       - unparseable but exit 0 → ``parse_error=True``, findings=[], exit_code 0

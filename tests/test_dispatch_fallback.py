@@ -126,6 +126,8 @@ def test_both_fail_model_is_none():
     assert r["exit_code"] == 2
     assert r["fallback_used"] is True
     assert r["model"] is None
+    # route still names the last-tried fallback — do not aggregate zeros by route
+    assert r["route"] == "aichat"
     assert r["error"]  # non-empty
     assert "fb fail" in r["error"]
     assert r["findings"] == []
