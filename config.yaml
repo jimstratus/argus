@@ -72,7 +72,8 @@ defaults:
 #
 # The OPENROUTER-ROUTED pins in this block — every `client: openrouter`
 # model slug, plus its ctx and cost_per_m — were verified against the live
-# catalog (GET /api/v1/models) on 2026-09-22.
+# catalog (GET /api/v1/models) on 2026-09-22, then re-pinned
+# (cost/ctx drift only) via scripts/refresh.py on 2026-09-29.
 #
 # NOT covered by that check, because the OpenRouter API cannot see them:
 #   - direct-provider slugs (zai `glm-5.3`, minimax `MiniMax-M3`,
@@ -102,7 +103,8 @@ reviewers:
     ctx: 1310720
     tier: paid
     privacy: ok
-    cost_per_m: { input: 0.84, output: 2.64 }
+    # cost_per_m re-pinned 2026-09-29 from OpenRouter catalog (was 0.84/2.64).
+    cost_per_m: { input: 1.40, output: 4.40 }
     # Dual route. Declared order is direct-first; `defaults.route_preference`
     # (or --prefer-*) decides which is actually tried first at dispatch time.
     # The OpenRouter reasoning-only trap (content=null on large prompts via
@@ -166,7 +168,9 @@ reviewers:
   mimo:
     display: "Xiaomi MiMo-V2.6-Pro"
     role: [long-context, code]
-    ctx: 1048576
+    # ctx re-pinned 2026-09-29 from OpenRouter catalog (was 1048576 / 2^20;
+    # catalog publishes the rounded 1050000 marketing figure for v2.6-Pro).
+    ctx: 1050000
     tier: paid
     privacy: ok
     # Was xiaomi/mimo-v2-pro — DELISTED from OpenRouter. That slug 404'd on
@@ -195,7 +199,8 @@ reviewers:
     ctx: 500000
     tier: paid
     privacy: ok
-    cost_per_m: { input: 1.60, output: 4.80 }
+    # cost_per_m re-pinned 2026-09-29 from OpenRouter catalog (was 1.60/4.80).
+    cost_per_m: { input: 2.00, output: 6.00 }
     primary:  { route: aichat, client: openrouter, model: "x-ai/grok-4.7" }
 
   grok-longctx:
@@ -235,11 +240,12 @@ reviewers:
     ctx: 1048576
     tier: paid
     privacy: ok
-    cost_per_m: { input: 0.62, output: 2.88 }
+    # cost_per_m re-pinned 2026-09-29 from OpenRouter catalog (was 0.62/2.88).
+    # vs prior pin: input −37% (0.62→0.39), output +21% (2.88→3.49). Long-output
+    # OpenRouter runs are materially dearer; short/input-heavy ones are cheaper.
+    cost_per_m: { input: 0.39, output: 3.49 }
     # Dual route: DeepSeek's own platform (api.deepseek.com) + OpenRouter.
     # `route_preference` / --prefer-* selects which is tried first.
-    # The 0813 refresh is cheaper on input but ~1.5x on output vs the
-    # original v4-pro snapshot, so long-output runs get slightly dearer.
     primary:  { route: aichat, client: deepseek,   model: "deepseek-v4-pro" }
     fallback: { route: aichat, client: openrouter, model: "deepseek/deepseek-v4-pro-0813" }
 

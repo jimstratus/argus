@@ -171,11 +171,12 @@ confidence threshold.
 > across would have silently shrunk an existing roster's context window.
 
 **OpenRouter-routed** model IDs, context lengths and prices were verified
-against the live catalog on **2026-09-22**. Direct-provider slugs (z.ai,
-MiniMax, DeepSeek, Nous) and CLI-provider slugs (`minimax-coding-plan/…`,
-`ollama-cloud/…`, Copilot) are **not** covered — that API cannot see them.
-`opencode-glm` is the live example: still on `glm-5.2` precisely because its
-catalog is invisible from here.
+against the live catalog on **2026-09-22**, then re-pinned for cost/ctx drift
+on **2026-09-29** via `scripts/refresh.py` (no model-id changes). Direct-provider
+slugs (z.ai, MiniMax, DeepSeek, Nous) and CLI-provider slugs
+(`minimax-coding-plan/…`, `ollama-cloud/…`, Copilot) are **not** covered — that
+API cannot see them. `opencode-glm` is the live example: still on `glm-5.2`
+precisely because its catalog is invisible from here.
 
 ## Profiles
 
