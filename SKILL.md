@@ -7,7 +7,7 @@ description: >-
   in parallel, applies a confidence filter with cross-reviewer corroboration,
   and produces one merged review. Includes benchmark mode that runs the full
   fixture suite to establish preferred reviewers.
-argument-hint: "[--profile NAME | --custom LIST | --models LIST] [--pr URL | --files GLOB | -] [--route-pref {openrouter,direct} | --prefer-direct | --prefer-openrouter] [--benchmark] [--stats] [--dry-run] [--yes-cost] [--allow-free] [--save-as NAME] [--output {md,json,gsd}]"
+argument-hint: "[--profile NAME | --custom LIST | --models LIST] [--pr URL | --files GLOB | -] [--route-pref {openrouter,direct} | --prefer-direct | --prefer-openrouter] [--benchmark] [--stats] [--refresh] [--dry-run] [--yes-cost] [--allow-free] [--save-as NAME] [--output {md,json,gsd}]"
 allowed-tools:
   - Bash
   - Read
@@ -18,13 +18,15 @@ allowed-tools:
 ---
 
 <objective>
-Run a multi-model code review using the Argus skill at `d:/projects/.skills/argus/`.
+Run a multi-model code review using the Argus skill at `$ARGUS_HOME`
+(the skill install root). If `ARGUS_HOME` is unset, resolve it to the
+directory that contains this `SKILL.md`.
 </objective>
 
 <context>
-- Skill root: `d:/projects/.skills/argus/` (env: `ARGUS_HOME`)
+- Skill root: `$ARGUS_HOME` (env override; otherwise the directory containing this SKILL.md)
 - Config: `$ARGUS_HOME/config.yaml`
-- Scripts: `$ARGUS_HOME/scripts/*.py` (Python 3.12)
+- Scripts: `$ARGUS_HOME/scripts/*.py` (Python 3.12+)
 - Runs: `$ARGUS_HOME/runs/<ISO-ts>-<id>/`
 - Benchmarks: `$ARGUS_HOME/benchmarks/<ts>.{md,json}`
 - History: `$ARGUS_HOME/history.db` (SQLite, created on first run)
@@ -53,11 +55,25 @@ Extract from `$ARGUMENTS`:
 | `--allow-logging` | Include reviewers that log prompts/completions |
 | `--save-as NAME` | Persist `--custom` list as a named profile |
 | `--output {md,json,gsd}` | Output format (default: md) |
-| `--refresh` | Check for model ID updates on OpenRouter |
-| `--compare RUN_A RUN_B` | Diff two previous runs |
+| `--refresh` | Diff OpenRouter-routed pins in config.yaml against the live catalog (`scripts/refresh.py`). Exit non-zero on delisted/missing slugs (the mimo-silent-death class) or ctx/cost drift. Does **not** cover direct/CLI-only slugs. |
+| `--compare RUN_A RUN_B` | **Not yet implemented** (v2 idea). Do not advertise as live; do not invent a comparison. |
 
 Env overrides: `ARGUS_PROFILE`, `ARGUS_YES_COST=1`, `ARGUS_OUTPUT=gsd`,
 `ARGUS_ROUTE_PREF={openrouter,direct}`.
+
+### Mode short-circuit: `--refresh`
+
+If `$ARGUMENTS` contains `--refresh`, run the catalog pin diff and **stop**
+(do not detect host, do not dispatch):
+
+```bash
+python "$ARGUS_HOME/scripts/refresh.py" [--json]
+```
+
+Reports delisted / missing OpenRouter slugs (exit 2) and ctx / `cost_per_m`
+drift (exit 1). OpenRouter-routed pins only — direct-provider and CLI-only
+slugs are skipped (same coverage caveat as the 2026-09-22 roster refresh).
+This is the check `verify.py --all` cannot do.
 
 ## 2. Detect host CLI and adapt roster
 

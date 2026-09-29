@@ -68,6 +68,7 @@ argus/
 │   ├── estimate_cost.py        # Pre-flight cost gate
 │   ├── bench_cost.py           # Retrospective cost analysis
 │   ├── verify.py               # Route reachability ping
+│   ├── refresh.py              # OpenRouter catalog pin diff (model/ctx/cost)
 │   ├── or_balance.py           # OpenRouter balance check
 │   ├── stats.py                # history.db summary
 │   ├── install_aichat.py       # aichat config management
@@ -129,7 +130,7 @@ python scripts/aggregate_bench.py --ts "$TS"
 ### Verification
 
 ```bash
-# Check all reviewer routes
+# Check all reviewer routes (reachability ping — does NOT see the catalog)
 python scripts/verify.py --all
 
 # Check specific reviewer
@@ -137,6 +138,12 @@ python scripts/verify.py --roster glm
 
 # JSON output for scripting
 python scripts/verify.py --json --all
+
+# Diff OpenRouter-routed pins against the live catalog (model id / ctx / cost).
+# Exit 2 on delisted slugs (mimo-silent-death class), exit 1 on ctx/cost drift.
+# Does NOT cover direct/CLI-only slugs — same caveat as the 2026-09-22 refresh.
+python scripts/refresh.py
+python scripts/refresh.py --json
 ```
 
 ### Stats
@@ -326,8 +333,14 @@ timestamp formats to a common `YYYYMMDDTHHMMSS` prefix before comparing.
 # Unit tests (no network, no API keys; also run by CI on every push/PR)
 python -m pytest tests/ -q
 
+# Docs drift gate (CI candidate — run locally before PRs that touch docs/)
+python docs/build.py && git diff --exit-code -- docs/
+
 # Verify all routes are reachable
 python scripts/verify.py --all
+
+# Diff OpenRouter pins against the live catalog (needs network; no API key)
+python scripts/refresh.py
 
 # Dry-run benchmark (one fixture, one run)
 python scripts/benchmark.py --runs 1 --fixtures sql-injection --progress

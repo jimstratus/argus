@@ -175,11 +175,12 @@ CLI-provider slugs (`minimax-coding-plan/…`, `ollama-cloud/…`, copilot) —
 that API cannot see them, which is why `opencode-glm` is deliberately still
 on glm-5.2. `mimo` had
 been pointing at a **delisted** slug (`xiaomi/mimo-v2-pro`) and was silently
-dead. Re-verify pins by diffing `config.yaml` against the live catalog
-(`curl -s https://openrouter.ai/api/v1/models`) before trusting a benchmark.
-**`verify.py --all` does NOT do this** — it only pings routes for
-reachability and cannot see the catalog, so a reviewer pings green on a
-stale ctx or price.
+dead. Re-verify pins with `python scripts/refresh.py` (or `/argus --refresh`)
+before trusting a benchmark — it diffs OpenRouter-routed model id / ctx /
+`cost_per_m` against `GET /api/v1/models` and exits non-zero on delisted or
+drifted pins. **`verify.py --all` does NOT do this** — it only pings routes
+for reachability and cannot see the catalog, so a reviewer pings green on a
+stale ctx or price. Direct/CLI-only slugs remain a manual check.
 
 ### Confidence filter + corroboration
 - Drop findings with effective confidence < 80.
@@ -228,9 +229,12 @@ tested returns usable JSON.
 ## v2 ideas (captured for later)
 - **User-action capture.** After merged.md is shown, collect accepted/rejected
   per finding into history.db. Use this for usage-driven preference weights.
-- **`--refresh` command.** Query OpenRouter `/models` and diff against pinned
-  model IDs in config.yaml; prompt for edits when upstream renames happen.
 - **`--compare runA runB`** diff two merged.md outputs side-by-side.
+- ~~**`--refresh` command.**~~ **Shipped** as `scripts/refresh.py` / `/argus --refresh`.
+  Diffs OpenRouter-routed pins (model id, ctx, cost_per_m) against
+  `GET /api/v1/models`; exit 2 on delisted, exit 1 on metadata drift. Does not
+  cover direct/CLI-only slugs. Auto-edit of config.yaml is still out of scope
+  — the command reports; a human (or a later PR) applies the pin updates.
 
 ## Known issues / open work
 
