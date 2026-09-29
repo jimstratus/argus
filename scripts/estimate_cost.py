@@ -74,7 +74,7 @@ def main() -> int:
         if r.get("note"):
             row["note"] = r["note"]
         else:
-            row["per_call_usd"] = round(r["per_call_usd"] or 0.0, 4)
+            row["per_call_usd"] = round(r["per_call_usd"], 4)
             row["calls"] = r["calls"]
         rows.append(row)
     total = est["total_usd"]

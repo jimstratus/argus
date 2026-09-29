@@ -630,7 +630,7 @@ def estimate_roster_cost(
                 "note": "unknown",
             })
             continue
-        if status == "cli-sub" or not rates:
+        if status == "cli-sub":
             rows.append({
                 "reviewer": name,
                 "cost_usd": 0.0,
