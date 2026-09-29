@@ -382,6 +382,7 @@ API keys live in env — **never** written to disk by Argus. aichat reads `AICHA
 /argus --files "src/auth/**/*.ts"
 /argus --benchmark --runs 3               # fixture-suite leaderboard
 /argus --stats                            # history.db summary
+/argus --refresh                          # diff OpenRouter pins vs live catalog
 /argus --dry-run                          # cost estimate, no dispatch
 ```
 
