@@ -25,12 +25,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
-    load_config, build_prompt, extract_json, normalize_findings,
+    load_config, build_prompt,
     ARGUS_HOME, history_conn, resolve_roster, resolve_routes, resolve_route_preference,
-    primary_is_openrouter,
+    primary_is_openrouter, dispatch_with_fallback,
 )
 from detect_host import detect as detect_host
-import adapters
 
 
 FIXTURES_DIR = ARGUS_HOME / "fixtures"
@@ -118,74 +117,13 @@ def _score(findings: list[dict], gt: dict) -> dict:
 
 async def _dispatch(name: str, spec: dict, prompt: str, timeout: int,
                     preference: str = "openrouter") -> dict:
-    primary, fb = resolve_routes(spec, preference)
-    primary = primary or {}
-    adapter = adapters.get(primary.get("route"))
-    if adapter is None:
-        return {"findings": [], "latency_sec": 0.0, "primary_latency_sec": 0.0,
-                "fallback_latency_sec": 0.0, "fallback_used": False,
-                # Nothing ran, so no model served this call.
-                "model": None,
-                "exit_code": 1, "primary_exit_code": 1, "primary_error": "",
-                "parse_error": False,
-                "error": f"no adapter for {primary.get('route')}"}
-    r = await adapter.send(prompt, primary, timeout)
-    primary_latency = r.get("latency_sec", 0.0)
-    primary_exit = r.get("exit_code", 0)
-    primary_err = ""
-    fallback_latency = 0.0
-    fallback_used = False
-    if r["exit_code"] != 0:
-        primary_err = (r.get("stderr") or "")[:200]
-        if fb:
-            fba = adapters.get(fb.get("route"))
-            if fba is not None:
-                r2 = await fba.send(prompt, fb, timeout)
-                fallback_latency = r2.get("latency_sec", 0.0)
-                fallback_used = True
-                r = r2
-    findings = []
-    parse_error = False
-    if r["exit_code"] == 0:
-        parsed = extract_json(r["stdout"])
-        # Require the schema's findings list — extract_json can recover an
-        # arbitrary inner object from prose, which is still a failed review.
-        if isinstance(parsed, dict) and isinstance(parsed.get("findings"), list):
-            findings = normalize_findings(parsed["findings"])
-        else:
-            parse_error = True
-    # The route that actually produced the scored output, or None when
-    # nothing did. Derived from the FINAL exit code, not from which route was
-    # tried last: when the primary fails and the fallback fails too, no model
-    # served this call, and recording the fallback's slug would attribute a
-    # zero score to a model that returned nothing. A parse error is not this
-    # case — the model did produce output, it was just unusable, and that
-    # belongs on its record.
-    served = (fb if fallback_used else primary) if r["exit_code"] == 0 else None
-    total_latency = primary_latency + fallback_latency
-    return {
-        "findings": findings,
-        "latency_sec": round(total_latency, 2),
-        "primary_latency_sec": round(primary_latency, 2),
-        "fallback_latency_sec": round(fallback_latency, 2),
-        "fallback_used": fallback_used,
-        # The model that served THIS call. A fallback-served score must not be
-        # filed under the model that failed, or stale-model reporting blames
-        # the wrong slug for the number it prints.
-        "model": (served or {}).get("model"),
-        "exit_code": r["exit_code"],
-        "primary_exit_code": primary_exit,
-        "primary_error": primary_err,
-        "parse_error": parse_error,
-        # Never an EMPTY string for a failure. _write_history stores this
-        # column verbatim, and stats.py distinguishes "this run errored" from
-        # "this row predates model recording" by whether it is non-empty — so
-        # a route that exits non-zero with nothing on stderr would otherwise
-        # be filed as a successful legacy row and earn a false `?` marker.
-        "error": (((r.get("stderr") or "").strip()[:200]
-                   or f"exit {r['exit_code']} with no stderr")
-                  if r["exit_code"] != 0 else None),
-    }
+    """Try primary; if primary fails, try fallback.
+
+    Thin wrapper around ``_common.dispatch_with_fallback`` (issue #22 slice 1)
+    so dispatch.py and benchmark.py cannot drift apart again.
+    """
+    return await dispatch_with_fallback(name, spec, prompt, timeout, preference)
+
 
 
 async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],

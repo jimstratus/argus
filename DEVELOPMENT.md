@@ -174,6 +174,15 @@ Drops are written to `dispatch_summary.json` under `"dropped"` and noted on
 stderr. `estimate_cost.py` rejects unknown reviewer names outright (exit 2,
 labeled `INVALID ROSTER` so it can't be mistaken for a cost block).
 
+### Dispatch with fallback — single source of truth
+
+`dispatch.py` and `benchmark.py` both call
+`_common.dispatch_with_fallback` for the primary→fallback pipeline.
+**Never re-implement primary/fallback + JSON parse inline** — those two
+copies had already drifted twice before this helper landed (issue #22
+slice 1). Exception isolation around the call stays in each caller
+(so a broken reviewer never aborts the sibling gather).
+
 ### Route Preference — single source of truth
 
 Reviewers `glm`, `minimax`, and `deepseek` are **dual-route**:

@@ -460,6 +460,149 @@ def primary_is_openrouter(spec: dict, preference: str = "openrouter") -> bool:
     return bool(p) and p.get("client") == "openrouter"
 
 
+async def dispatch_with_fallback(
+    name: str,
+    spec: dict,
+    prompt: str,
+    timeout: int,
+    preference: str = "openrouter",
+    *,
+    get_adapter: Any = None,
+) -> dict:
+    """Try primary route; on non-zero exit try fallback. Shared by dispatch.py
+    and benchmark.py (issue #22 slice 1).
+
+    These two copies had already drifted twice — exception isolation landed
+    only in dispatch, served-model / never-empty-error semantics only in
+    benchmark — so every primary→fallback call must go through here.
+
+    `get_adapter` defaults to `adapters.get` (lazy import to avoid a cycle:
+    adapters → _common). Tests inject a fake.
+
+    Return schema (superset of both former callers)::
+
+        name, findings, latency_sec, primary_latency_sec, fallback_latency_sec,
+        fallback_used, fallback_route, route, model, exit_code,
+        primary_exit_code, primary_error, parse_error, error, raw_preview
+
+    Contracts pinned by tests (past-drift regressions):
+      - both routes fail → ``model is None`` (do NOT blame the fallback slug);
+        ``route`` still names the last-tried (fallback) route — aggregate
+        zero-scores by ``model is None``, not by ``route``
+      - non-zero exit with empty stderr → ``error`` is still non-empty
+      - successful fallback → ``route`` / ``model`` come from the fallback
+      - unparseable but exit 0 → ``parse_error=True``, findings=[], exit_code 0
+      - unknown route → ``exit_code=1`` (never silently default to 0 in history)
+    """
+    if get_adapter is None:
+        import adapters as _adapters  # local: adapters imports _common
+        get_adapter = _adapters.get
+
+    primary_cfg, fallback_cfg = resolve_routes(spec, preference)
+    primary_cfg = primary_cfg or {}
+    primary_route = primary_cfg.get("route")
+
+    empty = {
+        "name": name,
+        "findings": [],
+        "latency_sec": 0.0,
+        "primary_latency_sec": 0.0,
+        "fallback_latency_sec": 0.0,
+        "fallback_used": False,
+        "fallback_route": None,
+        "route": primary_route,
+        "model": None,
+        "exit_code": 1,
+        "primary_exit_code": 1,
+        "primary_error": "",
+        "parse_error": False,
+        "error": f"no adapter for {primary_route}",
+        "raw_preview": None,
+    }
+
+    adapter = get_adapter(primary_route)
+    if adapter is None:
+        return empty
+
+    r = await adapter.send(prompt, primary_cfg, timeout)
+    primary_latency = float(r.get("latency_sec", 0.0) or 0.0)
+    primary_exit = int(r.get("exit_code", 0) or 0)
+    primary_err = ""
+    fallback_latency = 0.0
+    fallback_used = False
+    fallback_route = None
+    # Track which route_cfg produced the final `r` we score/parse.
+    served_cfg: dict | None = primary_cfg
+    route_label = r.get("route") or primary_route
+
+    if primary_exit != 0:
+        primary_err = ((r.get("stderr") or "")[:200])
+        if fallback_cfg:
+            fb_adapter = get_adapter(fallback_cfg.get("route"))
+            if fb_adapter is not None:
+                r2 = await fb_adapter.send(prompt, fallback_cfg, timeout)
+                fallback_latency = float(r2.get("latency_sec", 0.0) or 0.0)
+                fallback_used = True
+                fallback_route = r2.get("route") or fallback_cfg.get("route")
+                r = r2
+                route_label = fallback_route
+                # served_cfg only "counts" if this attempt actually succeeded;
+                # set provisionally — final model uses exit_code below.
+                served_cfg = fallback_cfg
+
+    final_exit = int(r.get("exit_code", 0) or 0)
+    findings: list = []
+    parse_error = False
+    raw_preview = None
+
+    if final_exit == 0:
+        parsed = extract_json(r.get("stdout") or "")
+        # Require the schema's findings list — extract_json can recover an
+        # arbitrary inner object from prose, which is still a failed review.
+        if isinstance(parsed, dict) and isinstance(parsed.get("findings"), list):
+            findings = normalize_findings(parsed["findings"])
+        else:
+            parse_error = True
+            raw_preview = (r.get("stdout") or "")[:2000]
+
+    # Model that served THIS call. Derived from final exit_code, not from
+    # which route was tried last: when primary and fallback both fail, no
+    # model served the call — recording the fallback slug would attribute a
+    # zero score to a model that returned nothing. A parse_error is different:
+    # the model did produce output; that belongs on its record.
+    if final_exit == 0:
+        model = (served_cfg or {}).get("model")
+    else:
+        model = None
+        served_cfg = None  # nothing served
+
+    # Never an empty string for a failure. stats.py distinguishes "this run
+    # errored" from "legacy row predates model recording" by non-emptiness.
+    if final_exit != 0:
+        err = ((r.get("stderr") or "").strip()[:800]
+               or f"exit {final_exit} with no stderr")
+    else:
+        err = None
+
+    return {
+        "name": name,
+        "findings": findings,
+        "latency_sec": round(primary_latency + fallback_latency, 2),
+        "primary_latency_sec": round(primary_latency, 2),
+        "fallback_latency_sec": round(fallback_latency, 2),
+        "fallback_used": fallback_used,
+        "fallback_route": fallback_route,
+        "route": route_label,
+        "model": model,
+        "exit_code": final_exit,
+        "primary_exit_code": primary_exit,
+        "primary_error": primary_err,
+        "parse_error": parse_error,
+        "error": err,
+        "raw_preview": raw_preview,
+    }
+
+
 def build_aichat_env(client: str) -> dict[str, str]:
     """Build env dict for an aichat subprocess with the right API key var set.
 
