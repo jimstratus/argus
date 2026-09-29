@@ -174,23 +174,22 @@ def test_bench_cost_reexports_rates_for():
 def test_no_inline_cost_formula_in_call_sites():
     """Call sites must not re-implement the /1_000_000 formula in code."""
     import ast
-    import re
+
+    def _is_million(node: ast.AST) -> bool:
+        return isinstance(node, ast.Constant) and node.value in (1_000_000, 1000000)
+
     for name in ("estimate_cost.py", "benchmark.py", "bench_cost.py"):
         src = (SCRIPTS / name).read_text(encoding="utf-8")
-        # Strip comments + docstrings so prose mentioning the formula cannot
-        # false-fail this guard (Kilo #30 thread).
         tree = ast.parse(src)
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef, ast.ClassDef, ast.Module)):
-                if not node.body:
-                    continue
-                if isinstance(node.body[0], ast.Expr) and isinstance(
-                    getattr(node.body[0], "value", None), ast.Constant
-                ) and isinstance(node.body[0].value.value, str):
-                    node.body[0].value.value = ""
-        code_only = ast.unparse(tree)
-        code_only = re.sub(r"#.*?$", "", code_only, flags=re.M)
-        assert "/ 1_000_000" not in code_only and "/1_000_000" not in code_only, (
+        # Inspect BinOp nodes directly — ast.unparse() normalizes 1_000_000 → 1000000
+        # and would let a reintroduced division slip past a string check (Copilot #30).
+        offenders = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.BinOp)
+            and isinstance(node.op, ast.Div)
+            and _is_million(node.right)
+        ]
+        assert not offenders, (
             f"{name} still has an inline $/M formula — use price_tokens / "
             "estimate_roster_cost"
         )
