@@ -241,8 +241,8 @@ reviewers:
     tier: paid
     privacy: ok
     # cost_per_m re-pinned 2026-09-29 from OpenRouter catalog (was 0.62/2.88).
-    # 0813 is cheaper on input, dearer on output vs the prior pin — long-output
-    # runs get slightly more expensive under OpenRouter.
+    # vs prior pin: input −37% (0.62→0.39), output +21% (2.88→3.49). Long-output
+    # OpenRouter runs are materially dearer; short/input-heavy ones are cheaper.
     cost_per_m: { input: 0.39, output: 3.49 }
     # Dual route: DeepSeek's own platform (api.deepseek.com) + OpenRouter.
     # `route_preference` / --prefer-* selects which is tried first.
