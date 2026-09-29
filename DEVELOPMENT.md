@@ -183,6 +183,15 @@ copies had already drifted twice before this helper landed (issue #22
 slice 1). Exception isolation around the call stays in each caller
 (so a broken reviewer never aborts the sibling gather).
 
+### Cost model — single source of truth
+
+`estimate_cost.py` (pre-flight), `benchmark.py`'s cost gate, and
+`bench_cost.py` (retrospective) all share `_common.price_tokens` /
+`rates_for` / `estimate_roster_cost` (issue #22 slice 2).
+**Never re-implement the `/ 1_000_000` $/M formula inline.** Threshold /
+`--yes-cost` / `ARGUS_YES_COST` / OR-balance exit semantics stay in each
+caller — only the arithmetic and rate resolution are shared.
+
 ### Route Preference — single source of truth
 
 Reviewers `glm`, `minimax`, and `deepseek` are **dual-route**:

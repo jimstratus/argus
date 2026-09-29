@@ -16,78 +16,14 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import load_config, estimate_tokens, canonical_reviewer, ARGUS_HOME
+from _common import (
+    load_config, estimate_tokens, ARGUS_HOME,
+    rates_for, price_tokens,
+)
 
 
-def rates_for(cfg: dict, name: str, recorded: dict | None = None,
-              fallback_calls: int = 0) -> tuple[str, dict | None, str]:
-    """Resolve a recorded benchmark reviewer name to its billing rates.
-
-    Returns (canonical_name, cost_per_m_or_None, status) where status is one of:
-
-      'recorded'  rates came from the artifact — what the run was billed at
-      'estimated' rates came from the CURRENT registry; the artifact predates
-                  rate snapshotting, so this is today's price for an older run
-      'mixed'     some calls were served by the FALLBACK route, whose price
-                  config.yaml does not carry (it stores one rate per reviewer,
-                  the primary's). Returned rates price the primary-served
-                  calls only; the fallback calls cannot be priced at all
-      'cli-sub'   no per-token price, and no fallback was used — genuinely $0
-      'unknown'   not in this registry under any name AND no recorded rates —
-                  cannot be priced at all. A reviewer merely deleted from
-                  config.yaml still prices from its artifact's own rates
-
-    Benchmark artifacts are historical: their `reviewer` fields hold whatever
-    the registry called that reviewer at record time, so a pre-2026-09-22 run
-    carries version-named keys like `glm-5.2`. Those are not registry keys any
-    more, so a direct lookup misses, `cost_per_m` comes back None, and the row
-    would be printed as a $0 paid-CLI subscription — silently understating what
-    the run actually cost. Hence the alias resolution here.
-
-    'cli-sub' and 'unknown' both cost $0 but mean opposite things: the first is
-    a reviewer that genuinely has no per-token price, the second is a name this
-    registry cannot price at all. Collapsing them is how a missing reviewer
-    disappears into a total that looks complete.
-    """
-    canonical = canonical_reviewer(cfg, name)
-    spec = cfg["reviewers"].get(canonical)
-
-    # 'unknown' means unpriceable, which is only true when the registry has
-    # never heard of this name AND the artifact carries no rates. A reviewer
-    # deleted from config.yaml is still fully priceable from its own recorded
-    # rates — discarding them on a registry miss would throw away the exact
-    # number the snapshot exists to preserve.
-    if spec is None and not recorded:
-        return canonical, None, "unknown"
-
-    # Rates recorded in the artifact win over the registry: they are what the
-    # run was actually billed at. qwen-3.6-plus ran at $0.50/$2.00; today's
-    # `qwen` is qwen3.8-max at $2.00/$6.00 — pricing the old run at the new
-    # rate is wrong by 4x, in the opposite direction from the $0 it used to
-    # report.
-    rates = recorded or (spec.get("cost_per_m") if spec else None)
-
-    # Fallback is checked BEFORE the rate source, because no rate in hand
-    # describes a fallback call. config.yaml carries one price per reviewer —
-    # the PRIMARY's — so a `kimi` run that fell back bills those calls at
-    # kimi-k3's $3/$15 when kimi-k2.7-code served them at $0.71/$3.21.
-    # Returning 'recorded' there would label a wrong number exact.
-    #
-    # `rates` still comes back non-None so the caller can price the calls the
-    # primary DID serve; only the fallback calls are unpriceable.
-    if fallback_calls:
-        return canonical, rates, "mixed"
-
-    if recorded:
-        return canonical, recorded, "recorded"
-    if rates:
-        # 'estimated' is deliberately distinct from 'recorded': same
-        # arithmetic, weaker claim. Artifacts written before rate snapshotting
-        # cannot be costed exactly, and saying so is better than quietly
-        # implying they can.
-        return canonical, rates, "estimated"
-    return canonical, None, "cli-sub"
-
+# rates_for lives in _common (issue #22 slice 2). Re-exported above so
+# existing `from bench_cost import rates_for` tests keep working.
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -142,7 +78,7 @@ def main() -> int:
         label = name if canonical == name else f"{name}\u2192{canonical}"
 
         if rates:
-            cost = (est_input / 1_000_000) * rates["input"] + (est_output / 1_000_000) * rates["output"]
+            cost = price_tokens(est_input, est_output, rates)
             rows.append({
                 "reviewer": label,
                 "calls": total_calls,

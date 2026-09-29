@@ -17,7 +17,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import load_config, estimate_tokens, resolve_route_preference, primary_is_openrouter, canonicalize_roster
+from _common import (
+    load_config, estimate_tokens, resolve_route_preference,
+    primary_is_openrouter, canonicalize_roster, estimate_roster_cost,
+)
 
 
 def main() -> int:
@@ -58,24 +61,23 @@ def main() -> int:
         )
         return 2
 
-    rows = []
-    total = 0.0
     per_unit_multiplier = args.runs_per_fixture * args.fixtures
-    for name in roster:
-        spec = cfg["reviewers"].get(name, {})
-        rates = spec.get("cost_per_m")
-        if not rates:
-            rows.append({"reviewer": name, "cost_usd": 0.0, "note": "paid CLI sub"})
-            continue
-        per_call = (in_tokens / 1_000_000) * rates["input"] + (expected_out / 1_000_000) * rates["output"]
-        cost = per_call * per_unit_multiplier
-        total += cost
-        rows.append({
-            "reviewer": name,
-            "per_call_usd": round(per_call, 4),
-            "calls": per_unit_multiplier,
-            "cost_usd": round(cost, 4),
-        })
+    est = estimate_roster_cost(
+        cfg, roster,
+        input_tokens_per_unit=in_tokens,
+        output_tokens_per_call=expected_out,
+        calls_per_unit=per_unit_multiplier,
+    )
+    rows = []
+    for r in est["per_reviewer"]:
+        row = {"reviewer": r["reviewer"], "cost_usd": round(r["cost_usd"], 4)}
+        if r.get("note"):
+            row["note"] = r["note"]
+        else:
+            row["per_call_usd"] = round(r["per_call_usd"], 4)
+            row["calls"] = r["calls"]
+        rows.append(row)
+    total = est["total_usd"]
 
     if args.mode == "benchmark":
         warn = float(d["benchmark_cost_warn_usd"])

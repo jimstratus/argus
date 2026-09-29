@@ -25,9 +25,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
-    load_config, build_prompt,
+    load_config, build_prompt, estimate_tokens,
     ARGUS_HOME, history_conn, resolve_roster, resolve_routes, resolve_route_preference,
-    primary_is_openrouter, dispatch_with_fallback,
+    primary_is_openrouter, dispatch_with_fallback, estimate_roster_cost,
 )
 from detect_host import detect as detect_host
 
@@ -442,29 +442,28 @@ async def _main_async(args) -> int:
     total_calls = len(roster) * len(fixtures) * args.runs
     print(f"Benchmarking {len(roster)} reviewers × {len(fixtures)} fixtures × {args.runs} runs = {total_calls} calls", file=sys.stderr)
 
-    # Cost gate: estimate spend and enforce benchmark thresholds
-    from _common import estimate_tokens
-    default_out_tokens = int(defaults["default_output_tokens_est"])
+    # Cost gate: shared estimate_roster_cost (issue #22 slice 2)
     prompt_overhead = int(defaults["prompt_overhead_tokens"])
     warn_thresh = float(defaults["benchmark_cost_warn_usd"])
     block_thresh = float(defaults["benchmark_cost_block_usd"])
-    est_total = 0.0
+    unit_tokens = [
+        estimate_tokens(fx["diff"]) + prompt_overhead for fx in fixtures
+    ]
+    est = estimate_roster_cost(
+        cfg, roster,
+        input_tokens_per_unit=unit_tokens,
+        output_tokens_per_call=int(defaults["default_output_tokens_est"]),
+        calls_per_unit=args.runs,
+    )
     per_reviewer_cost: list[dict] = []
-    for name in roster:
-        spec = cfg["reviewers"][name]
-        rates = spec.get("cost_per_m")
-        if not rates:
-            per_reviewer_cost.append({"reviewer": name, "cost": 0.0, "note": "paid CLI"})
-            continue
-        reviewer_cost = 0.0
-        for fx in fixtures:
-            in_tokens = estimate_tokens(fx["diff"]) + prompt_overhead
-            per_call = (in_tokens / 1_000_000) * rates["input"] + (default_out_tokens / 1_000_000) * rates["output"]
-            reviewer_cost += per_call * args.runs
-        per_reviewer_cost.append({"reviewer": name, "cost": round(reviewer_cost, 4)})
-        est_total += reviewer_cost
-
-    est_total = round(est_total, 4)
+    for r in est["per_reviewer"]:
+        row: dict = {"reviewer": r["reviewer"], "cost": round(r["cost_usd"], 4)}
+        if r.get("note") == "paid CLI sub":
+            row["note"] = "paid CLI"  # historical benchmark label
+        elif r.get("note"):
+            row["note"] = r["note"]
+        per_reviewer_cost.append(row)
+    est_total = round(est["total_usd"], 4)
     print(f"Estimated benchmark spend: ${est_total:.4f} (warn=${warn_thresh}, block=${block_thresh})", file=sys.stderr)
     yes_cost_override = bool(args.yes_cost) or (os.environ.get("ARGUS_YES_COST") == "1")
     if est_total >= block_thresh and not yes_cost_override:
