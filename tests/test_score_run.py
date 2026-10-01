@@ -73,10 +73,10 @@ def test_standard_prf1_from_counts():
 
 
 def test_all_false_positives():
-    """tp=0, fp>0, fn=0 → P=0; R uses tp+fn==0 → 1.0; F1=0."""
+    """tp=0, fp>0, fn=0 → empty-truth FPs: P=R=F1=0 (matches benchmark._score)."""
     r = score_run(tp=0, fp=2, fn=0)
     assert r["precision"] == 0.0
-    assert r["recall"] == 1.0
+    assert r["recall"] == 0.0
     assert r["f1"] == 0.0
 
 

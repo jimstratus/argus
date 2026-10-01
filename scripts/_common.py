@@ -688,8 +688,11 @@ def score_run(
       are zero-scored (P=R=F1=0). ``tp==fp==fn==0`` there means "never ran",
       not "found nothing".
     - Successful call with ``tp==fp==fn==0`` → clean baseline P=R=F1=1.0.
+    - Successful call with ``tp==0``, ``fp>0``, ``fn==0`` → all false positives
+      on an empty-truth fixture (P=R=F1=0), matching ``benchmark._score``.
     - Else standard ``P = tp/(tp+fp)``, ``R = tp/(tp+fn)``, ``F1 = 2PR/(P+R)``
-      (with ``tp+fp==0 → P=0``, ``tp+fn==0 → R=1``).
+      (with ``tp+fp==0 → P=0``; after the clean-baseline early return,
+      ``tp+fn==0`` implies ``fp>0`` so ``R=0``).
 
     Returned counts are the inputs (coerced to int); only P/R/F1 are derived.
     Matching findings→tp/fp/fn stays in ``benchmark._score``.
@@ -712,7 +715,8 @@ def score_run(
     else:
         prec = tp_i / (tp_i + fp_i)
     if tp_i + fn_i == 0:
-        rec = 1.0
+        # Only reachable with fp>0 (empty-truth + FPs); match _score / DEVELOPMENT.md
+        rec = 0.0
     else:
         rec = tp_i / (tp_i + fn_i)
     f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
