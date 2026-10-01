@@ -142,17 +142,48 @@ def test_inject_after_run_without_model(fake_cfg):
     assert mock.await_args.args[0] == ["opencode", "run", "-"]
 
 
-def test_thin_wrappers_are_factory_products():
-    """All five stdin adapters must be produced by the shared factory."""
-    for mod, route in (
-        (claude_cli, "claude-cli"),
-        (codex_cli, "codex-cli"),
-        (gemini_cli, "gemini-cli"),
-        (opencode_cli, "opencode-cli"),
-        (copilot_cli, "copilot-cli"),
-    ):
+def test_thin_wrappers_are_factory_products(fake_cfg, monkeypatch):
+    """Each real wrapper must exercise its route-specific factory knobs.
+
+    A name-only check would stay green if Copilot lost placeholder mode,
+    OpenCode lost inject-after-run, or Claude lost ARGUS_NESTED.
+    """
+    monkeypatch.delenv("COPILOT_ALLOW_ALL", raising=False)
+    monkeypatch.setenv("ARGUS_NESTED", "0")
+
+    cases = [
+        (claude_cli, "claude-cli", {}, ["claude", "-p", "--bare"],
+         lambda env, cmd: env.get("ARGUS_NESTED") == "1"),
+        (codex_cli, "codex-cli", {}, ["codex", "exec", "-"],
+         lambda env, cmd: True),
+        (gemini_cli, "gemini-cli", {}, ["gemini", "--yolo", "-p", ""],
+         lambda env, cmd: True),
+        (opencode_cli, "opencode-cli", {"model": "ollama-cloud/glm-5.2"},
+         ["opencode", "run", "-m", "ollama-cloud/glm-5.2", "-"],
+         lambda env, cmd: "-m" in cmd),
+        (copilot_cli, "copilot-cli", {"model": "gpt-5.2"},
+         ["copilot", "-p", "ptr", "--model", "gpt-5.2"],
+         lambda env, cmd: env.get("COPILOT_ALLOW_ALL") == "1"
+         and cmd[-1] == "gpt-5.2"),
+    ]
+    for mod, route, route_cfg, expect_cmd, extra_check in cases:
         assert callable(mod.send)
         assert route.replace("-", "_") in (mod.send.__name__ or "")
+        with patch(
+            "adapters.stdin_cli.run_subprocess",
+            new_callable=AsyncMock,
+            return_value=(0, "ok", "", 0.05),
+        ) as mock:
+            r = _run(mod.send("prompt-body", route_cfg, 15))
+        assert mock.await_count == 1
+        cmd, prompt = mock.await_args.args[0], mock.await_args.args[1]
+        env = mock.await_args.kwargs["env"]
+        assert prompt == "prompt-body"
+        assert all("prompt-body" not in str(p) for p in cmd)
+        assert cmd == expect_cmd
+        assert r["route"] == route
+        assert r["exit_code"] == 0
+        assert extra_check(env, cmd), f"{route} lost its factory knobs"
 
 
 def test_unknown_model_mode_raises(fake_cfg):
