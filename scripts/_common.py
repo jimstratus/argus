@@ -666,6 +666,64 @@ def estimate_roster_cost(
     }
 
 
+def score_run(
+    *,
+    tp: int = 0,
+    fp: int = 0,
+    fn: int = 0,
+    exit_code: int = 0,
+    parse_error: bool = False,
+    error: Any = None,
+) -> dict:
+    """Compute tp/fp/fn + precision/recall/F1 for one benchmark run.
+
+    Shared by ``benchmark.py`` (wall-cap stub + exit-code/parse-error branch)
+    and ``aggregate_bench._rescore_run`` (issue #22 slice 4). The three
+    hand-synced copies of failed-call zero-scoring lived there; do not
+    re-implement the clean-baseline / failure gate.
+
+    Rules
+    -----
+    - Failed calls (non-zero ``exit_code``, an ``error``, or ``parse_error``)
+      are zero-scored (P=R=F1=0). ``tp==fp==fn==0`` there means "never ran",
+      not "found nothing".
+    - Successful call with ``tp==fp==fn==0`` → clean baseline P=R=F1=1.0.
+    - Else standard ``P = tp/(tp+fp)``, ``R = tp/(tp+fn)``, ``F1 = 2PR/(P+R)``
+      (with ``tp+fp==0 → P=0``, ``tp+fn==0 → R=1``).
+
+    Returned counts are the inputs (coerced to int); only P/R/F1 are derived.
+    Matching findings→tp/fp/fn stays in ``benchmark._score``.
+    """
+    tp_i = int(tp or 0)
+    fp_i = int(fp or 0)
+    fn_i = int(fn or 0)
+    if int(exit_code or 0) != 0 or error or parse_error:
+        return {
+            "tp": tp_i, "fp": fp_i, "fn": fn_i,
+            "precision": 0.0, "recall": 0.0, "f1": 0.0,
+        }
+    if tp_i == 0 and fp_i == 0 and fn_i == 0:
+        return {
+            "tp": 0, "fp": 0, "fn": 0,
+            "precision": 1.0, "recall": 1.0, "f1": 1.0,
+        }
+    if tp_i + fp_i == 0:
+        prec = 0.0
+    else:
+        prec = tp_i / (tp_i + fp_i)
+    if tp_i + fn_i == 0:
+        rec = 1.0
+    else:
+        rec = tp_i / (tp_i + fn_i)
+    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
+    return {
+        "tp": tp_i, "fp": fp_i, "fn": fn_i,
+        "precision": round(prec, 3),
+        "recall": round(rec, 3),
+        "f1": round(f1, 3),
+    }
+
+
 async def dispatch_with_fallback(
     name: str,
     spec: dict,

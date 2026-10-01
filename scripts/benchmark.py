@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
     load_config, build_prompt, estimate_tokens,
     ARGUS_HOME, history_conn, resolve_roster, resolve_routes, resolve_route_preference,
-    primary_is_openrouter, dispatch_with_fallback, estimate_roster_cost,
+    primary_is_openrouter, dispatch_with_fallback, estimate_roster_cost, score_run,
 )
 from detect_host import detect as detect_host
 
@@ -141,14 +141,18 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
         for idx in range(runs):
             if time.monotonic() - wall_start > max_wall_sec:
                 await _log_progress(f"{name:<16} WALL-CAP HIT at {int(time.monotonic()-wall_start)}s — skipping remaining runs")
+                n_issues = len(fx["ground_truth"].get("issues", []))
+                scored = score_run(
+                    exit_code=137, error="wall-cap exceeded",
+                    tp=0, fp=0, fn=n_issues,
+                )
                 run_data.append({
                     "run_idx": idx, "n_findings": 0, "latency_sec": 0.0,
                     "exit_code": 137, "parse_error": False, "error": "wall-cap exceeded",
                     # Nothing ran, so no model served. Explicit, not absent:
                     # a missing key used to be backfilled with the primary.
                     "model": None,
-                    "tp": 0, "fp": 0, "fn": len(fx["ground_truth"].get("issues", [])),
-                    "precision": 0.0, "recall": 0.0, "f1": 0.0,
+                    **scored,
                 })
                 _PROGRESS_COUNTER["done"] += 1
                 continue
@@ -162,9 +166,14 @@ async def _bench_reviewer(name: str, spec: dict, fixtures: list[dict],
                      "error": f"{type(e).__name__}: {e}"}
             if d.get("exit_code", 1) != 0 or d.get("parse_error"):
                 # A failed or unparseable call is not "correctly found nothing" —
-                # zero-score it so broken reviewers can't earn F1=1.0 on clean-baseline.
-                scored = {"tp": 0, "fp": 0, "fn": len(fx["ground_truth"].get("issues", [])),
-                          "precision": 0.0, "recall": 0.0, "f1": 0.0}
+                # zero-score via shared score_run so broken reviewers can't earn
+                # F1=1.0 on clean-baseline (issue #22 slice 4).
+                scored = score_run(
+                    exit_code=d.get("exit_code", 1),
+                    parse_error=bool(d.get("parse_error")),
+                    error=d.get("error"),
+                    tp=0, fp=0, fn=len(fx["ground_truth"].get("issues", [])),
+                )
             else:
                 scored = _score(d["findings"], fx["ground_truth"])
             run_data.append({
