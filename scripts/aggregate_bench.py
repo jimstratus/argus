@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import ARGUS_HOME
+from _common import ARGUS_HOME, score_run
 
 
 BENCHMARKS_DIR = ARGUS_HOME / "benchmarks"
@@ -25,31 +25,20 @@ BENCHMARKS_DIR = ARGUS_HOME / "benchmarks"
 def _rescore_run(run: dict) -> dict:
     """Recompute P/R/F1 from tp/fp/fn with the clean-baseline rule (repairs pre-fix data).
 
-    Clean-baseline rule: tp==fp==fn==0 → P=R=F1=1.0 (reviewer correctly found nothing).
-    Failed calls (non-zero exit_code, an error, or unparseable output) are
-    zero-scored — tp==fp==fn==0 there means "never ran", not "found nothing".
+    Thin wrapper around ``_common.score_run`` (issue #22 slice 4) so the
+    failed-call zero-scoring gate cannot drift from benchmark.py.
     """
-    if int(run.get("exit_code", 0) or 0) != 0 or run.get("error") or run.get("parse_error"):
-        run["precision"], run["recall"], run["f1"] = 0.0, 0.0, 0.0
-        return run
-    tp = int(run.get("tp", 0) or 0)
-    fp = int(run.get("fp", 0) or 0)
-    fn = int(run.get("fn", 0) or 0)
-    if tp == 0 and fp == 0 and fn == 0:
-        run["precision"], run["recall"], run["f1"] = 1.0, 1.0, 1.0
-        return run
-    if tp + fp == 0:
-        prec = 0.0
-    else:
-        prec = tp / (tp + fp)
-    if tp + fn == 0:
-        rec = 1.0
-    else:
-        rec = tp / (tp + fn)
-    f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
-    run["precision"] = round(prec, 3)
-    run["recall"] = round(rec, 3)
-    run["f1"] = round(f1, 3)
+    scored = score_run(
+        tp=run.get("tp", 0),
+        fp=run.get("fp", 0),
+        fn=run.get("fn", 0),
+        exit_code=run.get("exit_code", 0),
+        parse_error=bool(run.get("parse_error")),
+        error=run.get("error"),
+    )
+    run["precision"] = scored["precision"]
+    run["recall"] = scored["recall"]
+    run["f1"] = scored["f1"]
     return run
 
 
