@@ -22,6 +22,16 @@ from _common import md_table, render_leaderboard_md  # noqa: E402
 
 
 GOLDEN = Path(__file__).resolve().parent / "golden"
+
+
+def _read_lf(path: Path) -> str:
+    """Read text with line endings normalized to LF.
+
+    Golden files may be checked out with CRLF on Windows, and
+    ``Path.write_text`` translates newlines per platform, so compare the
+    rendered content, not the OS newline convention.
+    """
+    return path.read_bytes().decode("utf-8").replace("\r\n", "\n")
 TS = "20261004T120000"
 
 
@@ -125,17 +135,17 @@ def agg_results() -> list[dict]:
 def _render_bench(tmp_path, monkeypatch) -> str:
     monkeypatch.setattr(benchmark, "BENCHMARKS_DIR", tmp_path)
     md_out, _ = benchmark._write_outputs(bench_results(), BENCH_FIXTURES, 3, TS, BENCH_AGREEMENT)
-    return md_out.read_bytes().decode("utf-8")
+    return _read_lf(md_out)
 
 
 def test_benchmark_markdown_byte_identical(tmp_path, monkeypatch):
     got = _render_bench(tmp_path, monkeypatch)
-    assert got == (GOLDEN / "benchmark_leaderboard.md").read_bytes().decode("utf-8")
+    assert got == _read_lf(GOLDEN / "benchmark_leaderboard.md")
 
 
 def test_aggregate_markdown_byte_identical():
     got = aggregate_bench._leaderboard_md(TS, agg_results())
-    assert got == (GOLDEN / "aggregate_leaderboard.md").read_bytes().decode("utf-8")
+    assert got == _read_lf(GOLDEN / "aggregate_leaderboard.md")
 
 
 def test_benchmark_and_aggregate_share_section_skeleton(tmp_path, monkeypatch):
