@@ -192,6 +192,15 @@ slice 1). Exception isolation around the call stays in each caller
 `--yes-cost` / `ARGUS_YES_COST` / OR-balance exit semantics stay in each
 caller — only the arithmetic and rate resolution are shared.
 
+### Leaderboard Markdown — single source of truth
+
+`benchmark._write_outputs` and `aggregate_bench._leaderboard_md` both render
+the leaderboard + per-fixture detail through `_common.render_leaderboard_md`
+(tables via `_common.md_table`; issue #22 slice 5). **Never hand-roll the
+leaderboard table inline.** Each report keeps its own columns and number
+formatting (passed as column specs); benchmark appends its agreement matrix
+after the shared sections. `tests/golden/*.md` pin both outputs byte-for-byte.
+
 ### Route Preference — single source of truth
 
 Reviewers `glm`, `minimax`, and `deepseek` are **dual-route**:

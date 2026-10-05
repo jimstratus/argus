@@ -6,7 +6,8 @@ Failed-call zero-scoring lived in three hand-synced copies:
   3. aggregate_bench._rescore_run
 
 These tests pin the shared contracts so the three call sites cannot diverge
-again. Matching findings→tp/fp/fn stays in benchmark._score (covered by
+again. The call sites themselves are exercised behaviorally in
+test_score_run_call_sites.py. Matching findings→tp/fp/fn stays in benchmark._score (covered by
 test_score.py).
 
 Run: python -m pytest tests/test_score_run.py -q
@@ -111,15 +112,6 @@ def test_rescore_run_delegates_clean_baseline():
     assert out["precision"] == 1.0
     assert out["recall"] == 1.0
     assert out["f1"] == 1.0
-
-
-def test_call_sites_use_score_run():
-    """Both producers of per-run scores must call the shared helper."""
-    bench_src = (SCRIPTS / "benchmark.py").read_text(encoding="utf-8")
-    agg_src = (SCRIPTS / "aggregate_bench.py").read_text(encoding="utf-8")
-    assert "score_run(" in bench_src
-    assert "score_run(" in agg_src
-    assert "from _common import" in bench_src and "score_run" in bench_src
 
 
 def test_aggregate_bench_does_not_reimplement_formula():
