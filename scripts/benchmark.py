@@ -28,6 +28,7 @@ from _common import (
     load_config, build_prompt, estimate_tokens,
     ARGUS_HOME, history_conn, resolve_roster, resolve_routes, resolve_route_preference,
     primary_is_openrouter, dispatch_with_fallback, estimate_roster_cost, score_run,
+    render_leaderboard_md,
 )
 from detect_host import detect as detect_host
 
@@ -344,34 +345,34 @@ def _write_outputs(results: list[dict], fixtures: list[dict], runs: int, ts: str
         encoding="utf-8",
     )
 
-    # Leaderboard markdown
-    ranked = sorted(serializable, key=lambda r: -r["overall"]["f1"])
-    md = [f"# Argus Benchmark — `{ts}`", ""]
-    md.append(f"**Fixtures ({len(fixtures)}):** {', '.join(fx['name'] for fx in fixtures)}  ")
-    md.append(f"**Runs per fixture:** {runs}  ")
-    md.append(f"**Reviewers tested:** {len(ranked)}  ")
-    md.append(f"**Total calls:** {len(fixtures) * runs * len(ranked)}")
-    md.append("")
-    md.append("## Leaderboard (by F1)")
-    md.append("")
-    md.append("| Rank | Reviewer | F1 | Precision | Recall | Avg latency (s) |")
-    md.append("|------|----------|----|-----------|--------|-----------------|")
-    for i, r in enumerate(ranked, 1):
-        o = r["overall"]
-        md.append(f"| {i} | `{r['reviewer']}` | {o['f1']} | {o['precision']} | {o['recall']} | {o['avg_latency']} |")
-    md.append("")
-
-    md.append("## Per-fixture detail")
-    md.append("")
-    for r in ranked:
-        md.append(f"### `{r['reviewer']}` — overall F1 = {r['overall']['f1']}")
-        md.append("")
-        md.append("| Fixture | Precision | Recall | F1 | Avg findings | Avg latency (s) |")
-        md.append("|---------|-----------|--------|----|--------------|-----------------|")
-        for fr in r["fixtures"]:
-            a = fr["avg"]
-            md.append(f"| {fr['fixture']} | {a['precision']} | {a['recall']} | {a['f1']} | {a['avg_findings']} | {a['avg_latency']} |")
-        md.append("")
+    # Leaderboard + per-fixture detail: shared renderer (issue #22 slice 5).
+    md = render_leaderboard_md(
+        title=f"# Argus Benchmark — `{ts}`",
+        summary_lines=[
+            f"**Fixtures ({len(fixtures)}):** {', '.join(fx['name'] for fx in fixtures)}  ",
+            f"**Runs per fixture:** {runs}  ",
+            f"**Reviewers tested:** {len(serializable)}  ",
+            f"**Total calls:** {len(fixtures) * runs * len(serializable)}",
+        ],
+        results=serializable,
+        leaderboard_columns=[
+            ("Rank",            lambda i, r: i),
+            ("Reviewer",        lambda i, r: f"`{r['reviewer']}`"),
+            ("F1",              lambda i, r: r["overall"]["f1"]),
+            ("Precision",       lambda i, r: r["overall"]["precision"]),
+            ("Recall",          lambda i, r: r["overall"]["recall"]),
+            ("Avg latency (s)", lambda i, r: r["overall"]["avg_latency"]),
+        ],
+        fixture_columns=[
+            ("Fixture",         lambda fr: fr["fixture"]),
+            ("Precision",       lambda fr: fr["avg"]["precision"]),
+            ("Recall",          lambda fr: fr["avg"]["recall"]),
+            ("F1",              lambda fr: fr["avg"]["f1"]),
+            ("Avg findings",    lambda fr: fr["avg"]["avg_findings"]),
+            ("Avg latency (s)", lambda fr: fr["avg"]["avg_latency"]),
+        ],
+        detail_heading=lambda r: f"### `{r['reviewer']}` — overall F1 = {r['overall']['f1']}",
+    )
 
     md.append("## Agreement matrix (Jaccard on finding locations)")
     md.append("")

@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import ARGUS_HOME, score_run
+from _common import ARGUS_HOME, render_leaderboard_md, score_run
 
 
 BENCHMARKS_DIR = ARGUS_HOME / "benchmarks"
@@ -88,47 +88,51 @@ def _collect(ts: str) -> list[dict]:
     return results
 
 
+def _status(r: dict) -> str:
+    return "fatal" if r.get("fatal_error") else ("partial" if not r.get("fixtures") else "ok")
+
+
+def _detail_notice(r: dict) -> str | None:
+    if r.get("fatal_error"):
+        return f"_Fatal: {r['fatal_error']}_"
+    if not r.get("fixtures", []):
+        return "_No data._"
+    return None
+
+
 def _leaderboard_md(ts: str, results: list[dict]) -> str:
-    ranked = sorted(results, key=lambda r: -r.get("overall", {}).get("f1", 0.0))
-    lines = [f"# Argus Benchmark — `{ts}` (parallel-shell aggregate)", ""]
-    lines.append(f"**Reviewers collected:** {len(ranked)}")
-    lines.append("")
-    lines.append("## Leaderboard (by F1)")
-    lines.append("")
-    lines.append("| Rank | Reviewer | F1 | Precision | Recall | Avg call (s) | Total calls (s) | Status |")
-    lines.append("|------|----------|----|-----------|--------|--------------|-----------------|--------|")
-    for i, r in enumerate(ranked, 1):
-        o = r.get("overall", {})
-        name = r.get("reviewer", "?")
-        status = "fatal" if r.get("fatal_error") else ("partial" if not r.get("fixtures") else "ok")
-        tot = r.get("total_call_latency_sec", 0.0)
-        lines.append(f"| {i} | `{name}` | {o.get('f1', 0):.3f} | {o.get('precision', 0):.3f} | "
-                     f"{o.get('recall', 0):.3f} | {o.get('avg_latency', 0):.2f} | {tot:.1f} | {status} |")
-    lines.append("")
-    lines.append("## Per-fixture detail")
-    lines.append("")
-    for r in ranked:
-        name = r.get("reviewer", "?")
-        o = r.get("overall", {})
-        fixtures = r.get("fixtures", [])
-        lines.append(f"### `{name}` — overall F1 = {o.get('f1', 0):.3f}")
-        if r.get("fatal_error"):
-            lines.append(f"_Fatal: {r['fatal_error']}_")
-            lines.append("")
-            continue
-        if not fixtures:
-            lines.append("_No data._")
-            lines.append("")
-            continue
-        lines.append("")
-        lines.append("| Fixture | Precision | Recall | F1 | Avg findings | Avg latency (s) |")
-        lines.append("|---------|-----------|--------|----|--------------|-----------------|")
-        for fr in fixtures:
-            a = fr.get("avg", {})
-            lines.append(f"| {fr.get('fixture', '?')} | {a.get('precision', 0):.3f} | "
-                         f"{a.get('recall', 0):.3f} | {a.get('f1', 0):.3f} | "
-                         f"{a.get('avg_findings', 0):.1f} | {a.get('avg_latency', 0):.2f} |")
-        lines.append("")
+    """Thin wrapper around ``_common.render_leaderboard_md`` (issue #22 slice 5)."""
+    def ov(r: dict, key: str) -> float:
+        return r.get("overall", {}).get(key, 0)
+
+    def av(fr: dict, key: str) -> float:
+        return fr.get("avg", {}).get(key, 0)
+
+    lines = render_leaderboard_md(
+        title=f"# Argus Benchmark — `{ts}` (parallel-shell aggregate)",
+        summary_lines=[f"**Reviewers collected:** {len(results)}"],
+        results=results,
+        leaderboard_columns=[
+            ("Rank",            lambda i, r: i),
+            ("Reviewer",        lambda i, r: f"`{r.get('reviewer', '?')}`"),
+            ("F1",              lambda i, r: f"{ov(r, 'f1'):.3f}"),
+            ("Precision",       lambda i, r: f"{ov(r, 'precision'):.3f}"),
+            ("Recall",          lambda i, r: f"{ov(r, 'recall'):.3f}"),
+            ("Avg call (s)",    lambda i, r: f"{ov(r, 'avg_latency'):.2f}"),
+            ("Total calls (s)", lambda i, r: f"{r.get('total_call_latency_sec', 0.0):.1f}"),
+            ("Status",          lambda i, r: _status(r)),
+        ],
+        fixture_columns=[
+            ("Fixture",         lambda fr: fr.get("fixture", "?")),
+            ("Precision",       lambda fr: f"{av(fr, 'precision'):.3f}"),
+            ("Recall",          lambda fr: f"{av(fr, 'recall'):.3f}"),
+            ("F1",              lambda fr: f"{av(fr, 'f1'):.3f}"),
+            ("Avg findings",    lambda fr: f"{av(fr, 'avg_findings'):.1f}"),
+            ("Avg latency (s)", lambda fr: f"{av(fr, 'avg_latency'):.2f}"),
+        ],
+        detail_heading=lambda r: f"### `{r.get('reviewer', '?')}` — overall F1 = {ov(r, 'f1'):.3f}",
+        detail_notice=_detail_notice,
+    )
     return "\n".join(lines)
 
 

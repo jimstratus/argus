@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable, Sequence
 
 try:
     import yaml
@@ -726,6 +726,90 @@ def score_run(
         "recall": round(rec, 3),
         "f1": round(f1, 3),
     }
+
+
+
+def md_table(headers: Sequence[str], rows: Iterable[Sequence[Any]]) -> list[str]:
+    """Render a GitHub-flavoured Markdown table as a list of lines.
+
+    The separator row is sized to each header (``len(header) + 2`` dashes),
+    which is what the hand-written benchmark/aggregate tables used. Cells are
+    rendered with ``str()`` -- identical to ``f"{value}"`` -- so callers that
+    want fixed precision pre-format their cells.
+    """
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "|" + "|".join("-" * (len(h) + 2) for h in headers) + "|",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(str(c) for c in row) + " |")
+    return lines
+
+
+def render_leaderboard_md(
+    *,
+    title: str,
+    summary_lines: Sequence[str],
+    results: Sequence[dict],
+    leaderboard_columns: Sequence[tuple[str, Callable[[int, dict], Any]]],
+    fixture_columns: Sequence[tuple[str, Callable[[dict], Any]]],
+    detail_heading: Callable[[dict], str],
+    detail_notice: Callable[[dict], str | None] | None = None,
+) -> list[str]:
+    """Shared leaderboard + per-fixture Markdown (issue #22 slice 5).
+
+    Used by ``benchmark._write_outputs`` and ``aggregate_bench._leaderboard_md``
+    so the section layout cannot drift. The two reports intentionally keep
+    their own columns and number formatting (passed in as column specs).
+
+    Layout::
+
+        <title>
+        <blank>
+        <summary_lines...>
+        <blank>
+        ## Leaderboard (by F1)        (results ranked by overall F1, desc, stable)
+        <table>
+        ## Per-fixture detail
+        ### <detail_heading(r)>       (per ranked reviewer)
+        <detail_notice(r)> | <table of r["fixtures"]>
+
+    ``leaderboard_columns`` cells are called as ``fn(rank, reviewer)`` (rank is
+    1-based); ``fixture_columns`` cells as ``fn(fixture_result)``. When
+    ``detail_notice`` returns a string for a reviewer, that line replaces the
+    reviewer's fixture table (aggregate's ``_Fatal: ..._`` / ``_No data._``).
+
+    Returns lines ending with a blank entry, so ``"\n".join(lines)`` ends with
+    a newline and callers can append further sections (benchmark appends the
+    agreement matrix).
+    """
+    ranked = sorted(results, key=lambda r: -r.get("overall", {}).get("f1", 0.0))
+    lines = [title, ""]
+    lines.extend(summary_lines)
+    lines.append("")
+    lines.append("## Leaderboard (by F1)")
+    lines.append("")
+    lines.extend(md_table(
+        [h for h, _ in leaderboard_columns],
+        ([fn(i, r) for _, fn in leaderboard_columns] for i, r in enumerate(ranked, 1)),
+    ))
+    lines.append("")
+    lines.append("## Per-fixture detail")
+    lines.append("")
+    for r in ranked:
+        lines.append(detail_heading(r))
+        notice = detail_notice(r) if detail_notice is not None else None
+        if notice is not None:
+            lines.append(notice)
+            lines.append("")
+            continue
+        lines.append("")
+        lines.extend(md_table(
+            [h for h, _ in fixture_columns],
+            ([fn(fr) for _, fn in fixture_columns] for fr in r.get("fixtures", [])),
+        ))
+        lines.append("")
+    return lines
 
 
 async def dispatch_with_fallback(
